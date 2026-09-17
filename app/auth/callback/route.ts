@@ -20,5 +20,5 @@ export async function GET(request: Request) {
     },
   );
   const { error } = await client.auth.exchangeCodeForSession(code);
-  return NextResponse.redirect(`${origin}/${error ? "auth?error=callback_failed" : ""}`);
+  return NextResponse.redirect(error ? `${origin}/auth?error=callback_failed` : `${origin}/?signed_in=1`);
 }

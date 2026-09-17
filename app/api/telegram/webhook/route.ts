@@ -149,8 +149,8 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
 }
 
 async function handleMessage(chatId: string, text?: string, location?: { latitude: number; longitude: number }) {
-  if (await handleDonorFlow(chatId, text, location)) return;
   const parsed = text ? command(text) : null;
+  if (!parsed && await handleDonorFlow(chatId, text, location)) return;
   if (!parsed) {
     await sendTelegramMessage(chatId, helpText, telegramEntryKeyboard());
     return;
@@ -220,10 +220,14 @@ export async function POST(req: Request) {
     await sendTelegramMessage(String(callback.message.chat.id), helpText, telegramEntryKeyboard());
   } else if (update.message) {
     try {
-      await configureTelegramBot(commands);
+      try {
+        await configureTelegramBot(commands);
+      } catch (error) {
+        console.error(JSON.stringify({ event: "telegram_menu_setup_failed", error: error instanceof Error ? error.message : String(error) }));
+      }
       await handleMessage(String(update.message.chat.id), update.message.text, update.message.location);
     } catch (error) {
-      console.error(JSON.stringify({ event: "telegram_update_failed", error: error instanceof Error ? error.message : "unknown" }));
+      console.error(JSON.stringify({ event: "telegram_update_failed", error: error instanceof Error ? error.message : String(error) }));
       return NextResponse.json({ error: "Telegram update could not be handled" }, { status: 502 });
     }
   }
