@@ -75,8 +75,8 @@ flowchart TB
   subgraph Vercel[Vercel deployment]
     Pages[Next.js pages and SSR]
     API[Next.js route handlers]
-    Hook[/api/telegram/webhook]
-    AuthCallback[/auth/callback]
+    Hook["/api/telegram/webhook"]
+    AuthCallback["/auth/callback"]
   end
 
   subgraph Core[BloodLink application modules]
