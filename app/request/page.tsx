@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { bloodGroups } from "@/lib/domain";
 
@@ -101,6 +102,17 @@ export default function RequestPage() {
 
   return (
     <main className="shell request-shell">
+      <header className="topbar" aria-label="Request navigation">
+        <Link href="/" className="brand" aria-label="BloodLink home">BloodLink</Link>
+        <nav className="nav-cluster" aria-label="Quick links">
+          <Link href="/request" className="nav-link">Request</Link>
+          <Link href="/donor" className="nav-link">Donate</Link>
+        </nav>
+        <a className="telegram-cta" href={`https://t.me/${process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "eblooddonataionbot"}`} target="_blank" rel="noreferrer">
+          Telegram
+        </a>
+      </header>
+
       <section className="panel request-panel">
         <div className="request-header">
           <p className="kicker">Request blood</p>
