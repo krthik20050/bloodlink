@@ -114,6 +114,54 @@ export async function disconnectTelegramDonor(chatId: string): Promise<Donor | n
   return data ? donorFromRow(data) : null;
 }
 
+export type TelegramConversation = {
+  chatId: string;
+  state: string;
+  data: Record<string, string | number | boolean | null>;
+};
+
+export async function getTelegramConversation(chatId: string): Promise<TelegramConversation | null> {
+  const { data, error } = await db().from("telegram_conversations").select("*").eq("chat_id", chatId).maybeSingle();
+  if (error) throw error;
+  return data ? { chatId, state: String(data.state), data: (data.data ?? {}) as TelegramConversation["data"] } : null;
+}
+
+export async function saveTelegramConversation(chatId: string, state: string, data: TelegramConversation["data"] = {}): Promise<void> {
+  const { error } = await db().from("telegram_conversations").upsert({
+    chat_id: chatId, state, data, updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+}
+
+export async function clearTelegramConversation(chatId: string): Promise<void> {
+  const { error } = await db().from("telegram_conversations").delete().eq("chat_id", chatId);
+  if (error) throw error;
+}
+
+export async function createTelegramDonor(input: {
+  chatId: string;
+  name: string;
+  contact: string;
+  bloodGroup: Donor["bloodGroup"];
+  latitude: number;
+  longitude: number;
+  lastDonationDate: string | null;
+}): Promise<Donor> {
+  const existing = await db().from("donors").select("*").eq("telegram_chat_id", input.chatId).maybeSingle();
+  if (existing.error) throw existing.error;
+  const values = {
+    name: input.name, contact: input.contact, blood_group: input.bloodGroup,
+    latitude: input.latitude, longitude: input.longitude,
+    last_donation_date: input.lastDonationDate, availability_status: "AVAILABLE",
+    notification_consent: true, telegram_chat_id: input.chatId,
+  };
+  const result = existing.data
+    ? await db().from("donors").update(values).eq("id", existing.data.id).select("*").single()
+    : await db().from("donors").insert(values).select("*").single();
+  if (result.error) throw result.error;
+  return donorFromRow(result.data);
+}
+
 export async function listRequests(): Promise<BloodRequest[]> {
   const { data, error } = await db().from("blood_requests").select("*").order("created_at", { ascending: false });
   if (error) throw error;
