@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { bloodGroups, type BloodGroup } from "@/lib/domain";
+import { normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { acceptNotification, declineNotification } from "@/lib/match-lifecycle";
 import {
   clearTelegramConversation,
@@ -16,6 +17,8 @@ import {
   configureTelegramBot,
   sendTelegramMessage,
   sendTelegramReplyKeyboard,
+  bloodGroupKeyboard,
+  consentKeyboard,
   telegramEntryKeyboard,
 } from "@/lib/telegram";
 
@@ -81,7 +84,7 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
         await sendTelegramMessage(chatId, "Please send a valid email address.");
       } else {
         await saveTelegramConversation(chatId, "donor_blood_group", { ...conversation.data, contact: value });
-        await sendTelegramMessage(chatId, `Which blood group do you have?\n\n${bloodGroups.join("  ")}`);
+        await sendTelegramMessage(chatId, "Which blood group do you have?", bloodGroupKeyboard());
       }
       return true;
     case "donor_blood_group":
@@ -89,16 +92,17 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
         await sendTelegramMessage(chatId, `Please send one of: ${bloodGroups.join(", ")}`);
       } else {
         await saveTelegramConversation(chatId, "donor_last_donation", { ...conversation.data, bloodGroup: value });
-        await sendTelegramMessage(chatId, "When was your last donation? Send YYYY-MM-DD, or type none.");
+        await sendTelegramMessage(chatId, "When was your last donation? Send DD/MM/YYYY (day/month/year), or type none.");
       }
       return true;
     case "donor_last_donation":
-      if (!value || (!/^none$/i.test(value) && !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
-        await sendTelegramMessage(chatId, "Use YYYY-MM-DD, for example 2025-06-14, or type none.");
+      const normalizedDate = value ? normalizeTelegramDonationDate(value) : undefined;
+      if (normalizedDate === undefined) {
+        await sendTelegramMessage(chatId, "Use DD/MM/YYYY, for example 28/02/2005, or type none. Please enter a real calendar date.");
       } else {
         await saveTelegramConversation(chatId, "donor_location", {
           ...conversation.data,
-          lastDonationDate: /^none$/i.test(value) ? null : value,
+          lastDonationDate: normalizedDate,
         });
         await sendTelegramReplyKeyboard(chatId, "Please share your location using the button below. We use it only to find nearby requests.", {
           keyboard: [[{ text: "Share my location", request_location: true }]],
@@ -120,7 +124,7 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
           latitude: location.latitude,
           longitude: location.longitude,
         });
-        await sendTelegramMessage(chatId, "I agree to receive relevant blood-donation notifications. Reply YES to confirm or NO to cancel.");
+        await sendTelegramMessage(chatId, "I agree to receive relevant blood-donation notifications. Choose yes to confirm or no to cancel.", consentKeyboard());
       }
       return true;
     case "donor_consent":
@@ -128,7 +132,7 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
         await clearTelegramConversation(chatId);
         await sendTelegramMessage(chatId, "Registration cancelled. Send /donate whenever you are ready.");
       } else if (!/^yes$/i.test(value ?? "")) {
-        await sendTelegramMessage(chatId, "Reply YES to confirm receiving relevant donor notifications, or NO to cancel.");
+        await sendTelegramMessage(chatId, "Choose yes to confirm receiving relevant donor notifications, or no to cancel.", consentKeyboard());
       } else {
         const data = conversation.data;
         const donor = await createTelegramDonor({
@@ -200,6 +204,19 @@ export async function POST(req: Request) {
   if (data === "donate" && callback?.message) {
     await answerCallbackQuery(callback.id, "Starting donor registration");
     await startDonorFlow(String(callback.message.chat.id));
+  } else if (data === "need_blood" && callback?.message) {
+    await answerCallbackQuery(callback.id, "Opening blood request");
+    const requestUrl = `${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? ""}/request`;
+    await sendTelegramMessage(String(callback.message.chat.id), "Create a blood request on BloodLink:", { inline_keyboard: [[{ text: "Open blood request", url: requestUrl }]] });
+  } else if (data?.startsWith("blood:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const group = data.slice(6);
+    await answerCallbackQuery(callback.id, "Blood group selected");
+    await handleDonorFlow(chatId, group);
+  } else if (data?.startsWith("consent:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, data === "consent:yes" ? "Consent recorded" : "Registration cancelled");
+    await handleDonorFlow(chatId, data === "consent:yes" ? "yes" : "no");
   } else if (data?.startsWith("yes:") || data?.startsWith("accept:")) {
     try {
       const result = await acceptNotification(data.slice(data.indexOf(":") + 1));

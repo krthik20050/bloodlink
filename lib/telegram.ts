@@ -1,4 +1,5 @@
 import "server-only";
+import { bloodGroups } from "@/lib/domain";
 
 type TelegramApiResponse<T> = { ok: true; result: T } | { ok: false; description?: string };
 type InlineKeyboard = { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> };
@@ -35,7 +36,20 @@ export async function configureTelegramBot(commands:TelegramCommand[]):Promise<v
 }
 export function telegramEntryKeyboard():InlineKeyboard{
   return {inline_keyboard:[
-    [{text:"I want to donate",callback_data:"donate"},{text:"I need blood",url:`${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/,"") ?? ""}/request`}],
+    [{text:"I want to donate",callback_data:"donate"},{text:"I need blood",callback_data:"need_blood"}],
     [{text:"Help",callback_data:"help"}],
   ]};
+}
+export function bloodGroupKeyboard():InlineKeyboard {
+  const rows: Array<Array<{text:string; callback_data:string}>> = [];
+  for (let index = 0; index < bloodGroups.length; index += 3) {
+    rows.push(bloodGroups.slice(index, index + 3).map(group => ({ text: group, callback_data: `blood:${group}` })));
+  }
+  return { inline_keyboard: rows };
+}
+export function consentKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "Yes, I agree", callback_data: "consent:yes" },
+    { text: "No, cancel", callback_data: "consent:no" },
+  ]] };
 }
