@@ -34,6 +34,7 @@ export async function POST(req: Request) {
     location: { latitude: data.latitude, longitude: data.longitude },
     urgency: data.urgency,
     status: "OPEN",
+    createdAt: new Date().toISOString(),
   });
   const bloodBanks = await findRaktkoshAvailability(data.bloodGroup);
   console.info(JSON.stringify({ event: "request_created", requestId: request.id, officialAvailabilityRows: bloodBanks.length }));

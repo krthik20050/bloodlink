@@ -1,5 +1,3 @@
-import "server-only";
-
 import { bloodGroups, type BloodGroup } from "@/lib/domain";
 
 export interface RaktkoshAvailability {

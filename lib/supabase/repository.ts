@@ -52,6 +52,7 @@ function notificationFromRow(row: Record<string, unknown>, actionToken: string):
     response: row.response as Notification["response"],
     sentAt: String(row.sent_at),
     respondedAt: (row.responded_at as string | null) ?? null,
+    actionTokenHash: String(row.action_token_hash),
     actionToken,
   };
 }
@@ -158,7 +159,7 @@ export async function listNotifications(): Promise<Notification[]> {
   return (data ?? []).map(row => notificationFromRow(row, ""));
 }
 
-export async function createNotification(input: Omit<Notification, "id">): Promise<Notification> {
+export async function createNotification(input: Omit<Notification, "id" | "actionTokenHash"> & { actionToken: string }): Promise<Notification> {
   const { data, error } = await db().from("notifications").insert({
     request_id: input.requestId,
     donor_id: input.donorId,
