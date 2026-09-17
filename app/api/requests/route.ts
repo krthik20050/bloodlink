@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { bloodGroups } from "@/lib/domain";
 import { getAuthenticatedUser } from "@/lib/supabase/auth";
-import { id, store } from "@/lib/store";
+import { createRequest, listRequestsByRequester } from "@/lib/supabase/repository";
+import { findRaktkoshAvailability } from "@/lib/raktkosh";
 
 const schema = z.object({
   bloodGroup: z.enum(bloodGroups),
@@ -16,7 +17,7 @@ const schema = z.object({
 export async function GET(req: Request) {
   const user = await getAuthenticatedUser(req);
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  return NextResponse.json(store.requests.filter((request) => request.requesterId === user.id));
+  return NextResponse.json(await listRequestsByRequester(user.id));
 }
 
 export async function POST(req: Request) {
@@ -25,28 +26,16 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
   const data = parsed.data;
-  const request = {
-    id: id("request"),
+  const request = await createRequest({
     requesterId: user.id,
     bloodGroup: data.bloodGroup,
     unitsRequired: data.unitsRequired,
     hospital: data.hospital,
     location: { latitude: data.latitude, longitude: data.longitude },
     urgency: data.urgency,
-    status: "OPEN" as const,
-    createdAt: new Date().toISOString(),
-  };
-  store.requests.push(request);
-  console.info(JSON.stringify({ event: "request_created", requestId: request.id }));
-  return NextResponse.json({
-    request,
-    bloodBanks: [{
-      name: "Demo Community Blood Centre",
-      distanceKm: 1.8,
-      bloodGroup: data.bloodGroup,
-      availability: "Reported available — confirm with the blood bank.",
-      source: "Mock provider",
-      lastUpdated: new Date().toISOString(),
-    }],
-  }, { status: 201 });
+    status: "OPEN",
+  });
+  const bloodBanks = await findRaktkoshAvailability(data.bloodGroup);
+  console.info(JSON.stringify({ event: "request_created", requestId: request.id, officialAvailabilityRows: bloodBanks.length }));
+  return NextResponse.json({ request, bloodBanks }, { status: 201 });
 }
