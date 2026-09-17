@@ -8,6 +8,7 @@ type Outcome = {
   request: { id: string };
   bloodBanks: { name: string; availability: string; distanceKm: number; source: string }[];
 };
+type NearbyHospital = { id: string; name: string; distanceKm: number; latitude: number; longitude: number };
 
 type LocationStatus = "idle" | "loading" | "success" | "denied" | "retry";
 
@@ -22,6 +23,8 @@ export default function RequestPage() {
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [status, setStatus] = useState("Allow location access so we can match your request to nearby donors and blood banks.");
   const [busy, setBusy] = useState(false);
+  const [hospitals, setHospitals] = useState<NearbyHospital[]>([]);
+  const [hospitalsStatus, setHospitalsStatus] = useState<"idle" | "loading" | "ready">("idle");
 
   function requestLocation(nextStatus: LocationStatus = "loading") {
     if (!navigator.geolocation) {
@@ -35,10 +38,24 @@ export default function RequestPage() {
     setStatus(nextStatus === "retry" ? "Retrying location access…" : "Requesting your browser location…");
 
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setLocation({ latitude: coords.latitude, longitude: coords.longitude });
+      async ({ coords }) => {
+        const nextLocation = { latitude: coords.latitude, longitude: coords.longitude };
+        setLocation(nextLocation);
         setLocationStatus("success");
         setStatus("Location enabled. We’ll use this to find nearby help without asking you to type coordinates.");
+        setHospitalsStatus("loading");
+        try {
+          const response = await fetch(`/api/hospitals?latitude=${nextLocation.latitude}&longitude=${nextLocation.longitude}`);
+          const data = await response.json();
+          const nearby = Array.isArray(data.hospitals) ? data.hospitals as NearbyHospital[] : [];
+          setHospitals(nearby);
+          if (nearby.length > 0) setHospital(nearby[0].name);
+          else setHospital("");
+        } catch {
+          setHospitals([]);
+        } finally {
+          setHospitalsStatus("ready");
+        }
       },
       (error) => {
         setLocation(null);
@@ -86,18 +103,27 @@ export default function RequestPage() {
     } else if (!res.ok) {
       setStatus(data.error ?? "Could not create the request. Check the details and try again.");
     } else {
-      setOutcome(data as Outcome);
-      setStatus("Your request is live. We’ve recorded the location and blood bank availability.");
+      const nextOutcome = data as Outcome;
+      setOutcome(nextOutcome);
+      setStatus(nextOutcome.bloodBanks.length > 0
+        ? "Your request is live. Official availability was reported."
+        : "No blood-bank stock was confirmed. We’re moving straight to compatible donor matching.");
+      if (nextOutcome.bloodBanks.length === 0) {
+        await runMatchFor(nextOutcome.request.id);
+      }
     }
 
     setBusy(false);
   }
 
-  async function runMatch() {
-    if (!outcome) return;
-    const res = await fetch(`/api/requests/${outcome.request.id}/match`, { method: "POST" });
+  async function runMatchFor(requestId: string) {
+    const res = await fetch(`/api/requests/${requestId}/match`, { method: "POST" });
     const data = await res.json();
     setMatch(res.ok ? `${data.result.selected.length} donor(s) received the first notification wave. ${data.result.excluded.length} were safely excluded.` : data.error);
+  }
+
+  async function runMatch() {
+    if (outcome) await runMatchFor(outcome.request.id);
   }
 
   return (
@@ -148,7 +174,12 @@ export default function RequestPage() {
 
             <label className="field full-width">
               <span>Hospital</span>
-              <input value={hospital} onChange={(event) => setHospital(event.target.value)} required />
+              <select value={hospital} onChange={(event) => setHospital(event.target.value)} required disabled={hospitalsStatus === "loading"}>
+                {hospitalsStatus === "loading" && <option>Finding nearby hospitals…</option>}
+                {hospitals.length === 0 && hospitalsStatus === "ready" && <option value="">No nearby hospital found</option>}
+                {hospitals.length > 0 && hospitals.map((item) => <option key={item.id} value={item.name}>{item.name} · {item.distanceKm.toFixed(1)} km</option>)}
+              </select>
+              {hospitalsStatus === "ready" && hospitals.length === 0 && <span className="field-hint">No public hospital names were returned nearby. Please try again or contact the local blood bank.</span>}
             </label>
 
             <label className="field">
