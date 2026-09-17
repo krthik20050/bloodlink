@@ -106,6 +106,13 @@ export async function linkTelegramDonor(token: string, chatId: string): Promise<
   return donorFromRow(updated.data);
 }
 
+export async function disconnectTelegramDonor(chatId: string): Promise<Donor | null> {
+  const { data, error } = await db().from("donors").update({ telegram_chat_id: null })
+    .eq("telegram_chat_id", chatId).select("*").maybeSingle();
+  if (error) throw error;
+  return data ? donorFromRow(data) : null;
+}
+
 export async function listRequests(): Promise<BloodRequest[]> {
   const { data, error } = await db().from("blood_requests").select("*").order("created_at", { ascending: false });
   if (error) throw error;
