@@ -1,9 +1,11 @@
 import "server-only";
 
 type TelegramApiResponse<T> = { ok: true; result: T } | { ok: false; description?: string };
-type InlineKeyboard = { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> };
+type InlineKeyboard = { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> };
+export type TelegramCommand = { command: string; description: string };
 
 function configured(): boolean { return process.env.MOCK_TELEGRAM === "false" && Boolean(process.env.TELEGRAM_BOT_TOKEN); }
+let menuConfigured=false;
 async function api<T>(method:string, body:Record<string, unknown>):Promise<T>{
   const token=process.env.TELEGRAM_BOT_TOKEN;
   if(!token) throw new Error("Telegram bot token is not configured");
@@ -20,6 +22,22 @@ export async function sendDonationRequest(input:{chatId:string; bloodGroup:strin
   await api("sendMessage",{chat_id:input.chatId,text:`🩸 BLOOD REQUEST\n\n${input.bloodGroup} needed\n🏥 ${input.hospital}\n📍 Approximately ${input.distanceKm.toFixed(1)} km away\n🚨 ${input.urgency}\n\nYou appear eligible based on your registered information. Final eligibility is decided by the blood bank.\n\nCan you donate?`,reply_markup:keyboard});
   console.info(JSON.stringify({event:"notification_sent",chatId:input.chatId}));return "sent";
 }
-export async function sendTelegramMessage(chatId:string,text:string):Promise<void>{if(configured())await api("sendMessage",{chat_id:chatId,text});}
+export async function sendTelegramMessage(chatId:string,text:string,replyMarkup?:InlineKeyboard):Promise<void>{if(configured())await api("sendMessage",{chat_id:chatId,text,...(replyMarkup?{reply_markup:replyMarkup}:{})});}
 export async function answerCallbackQuery(callbackQueryId:string,text:string):Promise<void>{if(configured())await api("answerCallbackQuery",{callback_query_id:callbackQueryId,text,show_alert:false});}
 export async function verifyTelegramBot():Promise<{username:string}> { return api<{username:string}>("getMe",{}); }
+export async function configureTelegramBot(commands:TelegramCommand[]):Promise<void>{
+  if(!configured()||menuConfigured) return;
+  await api("setMyCommands",{commands});
+  await api("setChatMenuButton",{menu_button:{type:"commands"}});
+  menuConfigured=true;
+}
+export function telegramEntryKeyboard():InlineKeyboard{
+  const appUrl=process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/,"");
+  return {inline_keyboard:[
+    ...(appUrl?[[
+      {text:"I want to donate",url:`${appUrl}/donor`},
+      {text:"I need blood",url:`${appUrl}/request`},
+    ]]:[]),
+    [{text:"Help",callback_data:"help"}],
+  ]};
+}
