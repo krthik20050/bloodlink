@@ -8,3 +8,4 @@ coverage
 .impeccable
 .playwright-mcp
 tsconfig.tsbuildinfo
+.pnpm-store
