@@ -1,0 +1,1 @@
+export const matchingConfig = { cooldownHours: 12, intervalDays: 90, notificationWaves: [{wave:1,maxDonors:5,radiusKm:3,waitMinutes:5},{wave:2,maxDonors:10,radiusKm:5,waitMinutes:5},{wave:3,maxDonors:20,radiusKm:10,waitMinutes:10}] } as const;

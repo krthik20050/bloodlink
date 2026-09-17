@@ -1,0 +1,25 @@
+import "server-only";
+
+type TelegramApiResponse<T> = { ok: true; result: T } | { ok: false; description?: string };
+type InlineKeyboard = { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> };
+
+function configured(): boolean { return process.env.MOCK_TELEGRAM === "false" && Boolean(process.env.TELEGRAM_BOT_TOKEN); }
+async function api<T>(method:string, body:Record<string, unknown>):Promise<T>{
+  const token=process.env.TELEGRAM_BOT_TOKEN;
+  if(!token) throw new Error("Telegram bot token is not configured");
+  const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  const payload=await response.json() as TelegramApiResponse<T>;
+  if(!response.ok||!payload.ok) throw new Error(`Telegram ${method} failed: ${payload.ok ? "unknown error" : payload.description ?? "unknown error"}`);
+  return payload.result;
+}
+
+export async function sendDonationRequest(input:{chatId:string; bloodGroup:string; hospital:string; distanceKm:number; urgency:string; actionToken:string}):Promise<"sent"|"mock"|"skipped">{
+  if(!configured()){console.info(JSON.stringify({event:"telegram_mock_notification",chatId:input.chatId}));return "mock";}
+  if(!/^-?\d+$/.test(input.chatId)){console.warn(JSON.stringify({event:"telegram_notification_skipped",reason:"Donor has no verified Telegram chat id"}));return "skipped";}
+  const keyboard:InlineKeyboard={inline_keyboard:[[{text:"YES, I CAN DONATE",callback_data:`yes:${input.actionToken}`},{text:"NO",callback_data:`no:${input.actionToken}`}]]};
+  await api("sendMessage",{chat_id:input.chatId,text:`🩸 BLOOD REQUEST\n\n${input.bloodGroup} needed\n🏥 ${input.hospital}\n📍 Approximately ${input.distanceKm.toFixed(1)} km away\n🚨 ${input.urgency}\n\nYou appear eligible based on your registered information. Final eligibility is decided by the blood bank.\n\nCan you donate?`,reply_markup:keyboard});
+  console.info(JSON.stringify({event:"notification_sent",chatId:input.chatId}));return "sent";
+}
+export async function sendTelegramMessage(chatId:string,text:string):Promise<void>{if(configured())await api("sendMessage",{chat_id:chatId,text});}
+export async function answerCallbackQuery(callbackQueryId:string,text:string):Promise<void>{if(configured())await api("answerCallbackQuery",{callback_query_id:callbackQueryId,text,show_alert:false});}
+export async function verifyTelegramBot():Promise<{username:string}> { return api<{username:string}>("getMe",{}); }
