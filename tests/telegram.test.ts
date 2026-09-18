@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeTelegramDonationDate } from "@/lib/telegram-registration";
+import { parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
 
 describe("Telegram donor registration", () => {
   it.each([
@@ -16,5 +17,25 @@ describe("Telegram donor registration", () => {
 
   it("accepts none", () => {
     expect(normalizeTelegramDonationDate("none")).toBeNull();
+  });
+});
+
+describe("Telegram requester validation", () => {
+  it.each([["1", 1], ["10", 10]])("accepts %s unit(s)", (input, expected) => {
+    expect(parseTelegramUnits(input)).toBe(expected);
+  });
+
+  it.each(["0", "11", "1.5", "many"])("rejects invalid units %s", input => {
+    expect(parseTelegramUnits(input)).toBeNull();
+  });
+
+  it("normalizes urgency and hospital input", () => {
+    expect(parseTelegramUrgency(" emergency ")).toBe("EMERGENCY");
+    expect(parseTelegramHospital(" City Hospital ")).toBe("City Hospital");
+  });
+
+  it("rejects invalid urgency and hospital input", () => {
+    expect(parseTelegramUrgency("critical")).toBeNull();
+    expect(parseTelegramHospital("x")).toBeNull();
   });
 });

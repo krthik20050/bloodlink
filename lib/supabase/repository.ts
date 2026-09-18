@@ -138,6 +138,15 @@ export async function clearTelegramConversation(chatId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function getOrCreateTelegramRequester(chatId: string): Promise<string> {
+  const existing = await db().from("telegram_requesters").select("requester_id").eq("chat_id", chatId).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return String(existing.data.requester_id);
+  const created = await db().from("telegram_requesters").insert({ chat_id: chatId }).select("requester_id").single();
+  if (created.error) throw created.error;
+  return String(created.data.requester_id);
+}
+
 export async function createTelegramDonor(input: {
   chatId: string;
   name: string;
@@ -178,6 +187,22 @@ export async function listRequestsByRequester(userId: string): Promise<BloodRequ
   const { data, error } = await db().from("blood_requests").select("*").eq("requester_id", userId).order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map(row => requestFromRow(row));
+}
+
+export async function listRequestsByRequesterId(requesterId: string): Promise<BloodRequest[]> {
+  return listRequestsByRequester(requesterId);
+}
+
+export async function cancelRequestForRequester(requestId: string, requesterId: string): Promise<boolean> {
+  const { data, error } = await db().from("blood_requests")
+    .update({ status: "CANCELLED" })
+    .eq("id", requestId)
+    .eq("requester_id", requesterId)
+    .in("status", ["OPEN", "MATCHED"])
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 }
 
 export async function getRequest(id: string): Promise<BloodRequest | null> {
