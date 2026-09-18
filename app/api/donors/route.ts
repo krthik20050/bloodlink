@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { bloodGroups } from "@/lib/domain";
 import { createDonor, createTelegramLink, listDonorsByUser } from "@/lib/supabase/repository";
-import { getAuthenticatedUser } from "@/lib/supabase/auth";
+import { getAuthenticatedUser, hasSameOrigin } from "@/lib/supabase/auth";
 
 const donorSchema = z.object({
   name: z.string().min(2).max(60),
@@ -22,6 +22,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasSameOrigin(req)) return NextResponse.json({ error: "Cross-origin request blocked" }, { status: 403 });
   const user = await getAuthenticatedUser(req);
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   const parsed = donorSchema.safeParse(await req.json());

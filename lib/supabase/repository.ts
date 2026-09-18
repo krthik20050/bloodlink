@@ -234,6 +234,15 @@ export async function updateNotification(id: string, patch: Partial<Pick<Notific
   if (error) throw error;
 }
 
+export async function claimNotification(id: string, response: Exclude<Notification["response"], "PENDING">, respondedAt: string): Promise<boolean> {
+  const { data, error } = await db().from("notifications").update({
+    response,
+    responded_at: respondedAt,
+  }).eq("id", id).eq("response", "PENDING").select("id").maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
 export async function expirePendingNotifications(requestId: string, exceptId: string): Promise<void> {
   const { error } = await db().from("notifications").update({ response: "EXPIRED" }).eq("request_id", requestId).eq("response", "PENDING").neq("id", exceptId);
   if (error) throw error;
@@ -252,6 +261,15 @@ export async function updateDonor(id: string, patch: Partial<Pick<Donor, "active
     ...(patch.activeMatchRequestId ? { active_match_request_id: patch.activeMatchRequestId } : {}),
     ...(patch.lastNotifiedAt ? { last_notified_at: patch.lastNotifiedAt } : {}),
   }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function createMatch(requestId: string, donorId: string): Promise<void> {
+  const { error } = await db().from("matches").insert({
+    request_id: requestId,
+    donor_id: donorId,
+    contact_exchange_enabled_at: new Date().toISOString(),
+  });
   if (error) throw error;
 }
 

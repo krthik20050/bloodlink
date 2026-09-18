@@ -219,7 +219,9 @@ export async function POST(req: Request) {
     await handleDonorFlow(chatId, data === "consent:yes" ? "yes" : "no");
   } else if (data?.startsWith("yes:") || data?.startsWith("accept:")) {
     try {
-      const result = await acceptNotification(data.slice(data.indexOf(":") + 1));
+      const chatId = callback?.message ? String(callback.message.chat.id) : undefined;
+      if (!chatId) throw new Error("Telegram chat context is missing");
+      const result = await acceptNotification(data.slice(data.indexOf(":") + 1), undefined, chatId);
       if (callback) await answerCallbackQuery(callback.id, "Match confirmed. Contact exchange is enabled.");
       if (callback?.message) await sendTelegramMessage(String(callback.message.chat.id), `🎉 Match confirmed with ${result.request.hospital}. Contact exchange is enabled.`);
     } catch (error) {
@@ -227,7 +229,9 @@ export async function POST(req: Request) {
     }
   } else if (data?.startsWith("no:")) {
     try {
-      await declineNotification(data.slice(3));
+      const chatId = callback?.message ? String(callback.message.chat.id) : undefined;
+      if (!chatId) throw new Error("Telegram chat context is missing");
+      await declineNotification(data.slice(3), chatId);
       if (callback) await answerCallbackQuery(callback.id, "No problem. You will not be contacted again for this request.");
     } catch (error) {
       if (callback) await answerCallbackQuery(callback.id, error instanceof Error ? error.message : "Unable to decline");

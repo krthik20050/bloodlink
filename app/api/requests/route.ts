@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { bloodGroups } from "@/lib/domain";
-import { getAuthenticatedUser } from "@/lib/supabase/auth";
+import { getAuthenticatedUser, hasSameOrigin } from "@/lib/supabase/auth";
 import { createRequest, listRequestsByRequester } from "@/lib/supabase/repository";
 import { findRaktkoshAvailability } from "@/lib/raktkosh";
 
@@ -21,6 +21,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!hasSameOrigin(req)) return NextResponse.json({ error: "Cross-origin request blocked" }, { status: 403 });
   const user = await getAuthenticatedUser(req);
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   const parsed = schema.safeParse(await req.json());
