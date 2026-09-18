@@ -299,6 +299,16 @@ button {
   box-shadow: 0 18px 40px var(--shadow);
 }
 
+.admin-table { display: grid; gap: 8px; }
+.admin-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.admin-row span { color: var(--muted); text-align: right; }
+
 .request-panel,
 .donor-panel { max-width: 760px; }
 
