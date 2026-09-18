@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
 import { bloodGroups, type BloodGroup } from "@/lib/domain";
+import { formatTelegramRequest, isTelegramBloodGroup, parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
 import { normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { acceptNotification, declineNotification } from "@/lib/match-lifecycle";
 import {
   clearTelegramConversation,
+  cancelRequestForRequester,
+  createRequest,
   createTelegramDonor,
   disconnectTelegramDonor,
+  getOrCreateTelegramRequester,
   getRequest,
   getTelegramConversation,
   linkTelegramDonor,
+  listRequestsByRequesterId,
   listDonors,
   saveTelegramConversation,
 } from "@/lib/supabase/repository";
@@ -20,6 +25,8 @@ import {
   bloodGroupKeyboard,
   consentKeyboard,
   telegramEntryKeyboard,
+  requesterConfirmationKeyboard,
+  requesterUrgencyKeyboard,
 } from "@/lib/telegram";
 
 type TelegramUpdate = {
@@ -38,12 +45,15 @@ type TelegramUpdate = {
 const commands = [
   { command: "start", description: "Open the BloodLink menu" },
   { command: "donate", description: "Register as a blood donor" },
+  { command: "request", description: "Request blood" },
+  { command: "need_blood", description: "Request blood" },
   { command: "help", description: "Show available actions" },
   { command: "status", description: "Show your donor status" },
+  { command: "cancel_request", description: "Cancel one of your blood requests" },
   { command: "cancel", description: "Cancel the current flow" },
   { command: "disconnect", description: "Disconnect this Telegram chat" },
 ];
-const helpText = "Use /start to open the menu.\n\nDonate: register directly in Telegram.\nNeed blood: create a request on BloodLink.\n/status: show your linked donor status.\n/cancel: stop the current flow.\n/disconnect: remove this chat from your donor profile.";
+const helpText = "Use /start to open the menu.\n\nDonate: register directly in Telegram.\n/request: create a blood request here.\n/status: show your donor status and blood requests.\n/cancel: stop the current flow.\n/disconnect: remove this chat from your donor profile.";
 
 function command(text: string): { name: string; payload?: string } | null {
   const match = text.trim().match(/^\/([a-z]+)(?:@[a-z0-9_]+)?(?:\s+(.+))?$/i);
@@ -63,6 +73,105 @@ async function donorStatus(chatId: string): Promise<string> {
 async function startDonorFlow(chatId: string) {
   await saveTelegramConversation(chatId, "donor_name");
   await sendTelegramMessage(chatId, "🩸 Let’s register you as a donor.\n\nWhat is your full name?");
+}
+
+async function startRequesterFlow(chatId: string) {
+  await saveTelegramConversation(chatId, "request_blood_group");
+  await sendTelegramMessage(chatId, "🩸 Let’s create a blood request.\n\nWhich blood group is needed?", bloodGroupKeyboard());
+}
+
+async function requesterId(chatId: string): Promise<string> {
+  return `telegram:${await getOrCreateTelegramRequester(chatId)}`;
+}
+
+async function requesterStatus(chatId: string): Promise<string> {
+  const requests = await listRequestsByRequesterId(await requesterId(chatId));
+  if (!requests.length) return "No blood requests have been created from this Telegram chat.";
+  return `Your blood requests:\n\n${requests.slice(0, 5).map(formatTelegramRequest).join("\n\n")}`;
+}
+
+async function handleRequesterFlow(chatId: string, text: string | undefined, location?: { latitude: number; longitude: number }): Promise<boolean> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("request_")) return false;
+  const value = text?.trim();
+  switch (conversation.state) {
+    case "request_blood_group":
+      if (!value || !isTelegramBloodGroup(value)) await sendTelegramMessage(chatId, `Please choose one of: ${bloodGroups.join(", ")}`, bloodGroupKeyboard());
+      else {
+        await saveTelegramConversation(chatId, "request_units", { bloodGroup: value });
+        await sendTelegramMessage(chatId, "How many units are needed? Send a number from 1 to 10.");
+      }
+      return true;
+    case "request_units": {
+      const units = value ? parseTelegramUnits(value) : null;
+      if (!units) await sendTelegramMessage(chatId, "Please send a whole number from 1 to 10.");
+      else {
+        await saveTelegramConversation(chatId, "request_urgency", { ...conversation.data, units });
+        await sendTelegramMessage(chatId, "How urgent is this request?", requesterUrgencyKeyboard());
+      }
+      return true;
+    }
+    case "request_urgency": {
+      const urgency = value ? parseTelegramUrgency(value) : null;
+      if (!urgency) await sendTelegramMessage(chatId, "Choose Routine, Urgent, or Emergency.", requesterUrgencyKeyboard());
+      else {
+        await saveTelegramConversation(chatId, "request_hospital", { ...conversation.data, urgency });
+        await sendTelegramMessage(chatId, "Which hospital should receive the blood?");
+      }
+      return true;
+    }
+    case "request_hospital": {
+      const hospital = value ? parseTelegramHospital(value) : null;
+      if (!hospital) await sendTelegramMessage(chatId, "Please send a hospital name between 2 and 100 characters.");
+      else {
+        await saveTelegramConversation(chatId, "request_location", { ...conversation.data, hospital });
+        await sendTelegramReplyKeyboard(chatId, "Please share the hospital location using the button below.", {
+          keyboard: [[{ text: "Share hospital location", request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        });
+      }
+      return true;
+    }
+    case "request_location":
+      if (!location) {
+        await sendTelegramReplyKeyboard(chatId, "Please tap “Share hospital location” so nearby donors can be matched.", {
+          keyboard: [[{ text: "Share hospital location", request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        });
+      } else {
+        const data: Record<string, string | number | boolean | null> = { ...conversation.data, latitude: location.latitude, longitude: location.longitude };
+        await saveTelegramConversation(chatId, "request_confirmation", data);
+        await sendTelegramMessage(chatId, `Please confirm:\n\n${String(data["bloodGroup"])} · ${String(data["units"])} unit${Number(data["units"]) === 1 ? "" : "s"} · ${String(data["urgency"])}\n🏥 ${String(data["hospital"])}\n📍 ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`, requesterConfirmationKeyboard());
+      }
+      return true;
+    case "request_confirmation":
+      if (!/^yes$/i.test(value ?? "")) {
+        if (/^no$/i.test(value ?? "")) {
+          await clearTelegramConversation(chatId);
+          await sendTelegramMessage(chatId, "Request cancelled. Send /request whenever you need blood.");
+        } else await sendTelegramMessage(chatId, "Choose Create request or Cancel.", requesterConfirmationKeyboard());
+        return true;
+      }
+      {
+        const data = conversation.data;
+        const request = await createRequest({
+          requesterId: await requesterId(chatId),
+          bloodGroup: data.bloodGroup as BloodGroup,
+          unitsRequired: Number(data.units),
+          hospital: String(data.hospital),
+          location: { latitude: Number(data.latitude), longitude: Number(data.longitude) },
+          urgency: data.urgency as "ROUTINE" | "URGENT" | "EMERGENCY",
+          status: "OPEN",
+          createdAt: new Date().toISOString(),
+        });
+        await clearTelegramConversation(chatId);
+        await sendTelegramMessage(chatId, `✅ Blood request created.\n\n${formatTelegramRequest(request)}\n\nUse /status to check it or /cancel_request ${request.id} to cancel it.`);
+      }
+      return true;
+  }
+  return true;
 }
 
 async function handleDonorFlow(chatId: string, text: string | undefined, location?: { latitude: number; longitude: number }): Promise<boolean> {
@@ -154,7 +263,7 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
 
 async function handleMessage(chatId: string, text?: string, location?: { latitude: number; longitude: number }) {
   const parsed = text ? command(text) : null;
-  if (!parsed && await handleDonorFlow(chatId, text, location)) return;
+  if (!parsed && (await handleRequesterFlow(chatId, text, location) || await handleDonorFlow(chatId, text, location))) return;
   if (!parsed) {
     await sendTelegramMessage(chatId, helpText, telegramEntryKeyboard());
     return;
@@ -162,6 +271,10 @@ async function handleMessage(chatId: string, text?: string, location?: { latitud
   switch (parsed.name) {
     case "donate":
       await startDonorFlow(chatId);
+      break;
+    case "request":
+    case "need_blood":
+      await startRequesterFlow(chatId);
       break;
     case "start": {
       const linked = parsed.payload ? await linkTelegramDonor(parsed.payload, chatId) : null;
@@ -172,7 +285,7 @@ async function handleMessage(chatId: string, text?: string, location?: { latitud
       await sendTelegramMessage(chatId, helpText, telegramEntryKeyboard());
       break;
     case "status":
-      await sendTelegramMessage(chatId, await donorStatus(chatId));
+      await sendTelegramMessage(chatId, `${await donorStatus(chatId)}\n\n${await requesterStatus(chatId)}`);
       break;
     case "cancel":
       await clearTelegramConversation(chatId);
@@ -181,6 +294,16 @@ async function handleMessage(chatId: string, text?: string, location?: { latitud
     case "disconnect": {
       const donor = await disconnectTelegramDonor(chatId);
       await sendTelegramMessage(chatId, donor ? "This Telegram chat was disconnected from your donor profile." : "No donor profile was linked to this Telegram chat.");
+      break;
+    }
+    case "cancel_request": {
+      const requestId = parsed.payload;
+      if (!requestId) {
+        await sendTelegramMessage(chatId, "Use /cancel_request <request-id>.");
+        break;
+      }
+      const cancelled = await cancelRequestForRequester(requestId, await requesterId(chatId));
+      await sendTelegramMessage(chatId, cancelled ? "✅ Blood request cancelled." : "That request was not found, already cancelled, or does not belong to this Telegram chat.");
       break;
     }
     default:
@@ -212,14 +335,25 @@ export async function POST(req: Request) {
     const chatId = String(callback.message.chat.id);
     const group = data.slice(6);
     await answerCallbackQuery(callback.id, "Blood group selected");
-    await handleDonorFlow(chatId, group);
+    if ((await getTelegramConversation(chatId))?.state === "request_blood_group") await handleRequesterFlow(chatId, group);
+    else await handleDonorFlow(chatId, group);
+  } else if (data?.startsWith("request:urgency:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "Urgency selected");
+    await handleRequesterFlow(chatId, data.slice("request:urgency:".length));
+  } else if (data?.startsWith("request:confirm:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, data.endsWith(":yes") ? "Creating request" : "Request cancelled");
+    await handleRequesterFlow(chatId, data.endsWith(":yes") ? "yes" : "no");
   } else if (data?.startsWith("consent:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, data === "consent:yes" ? "Consent recorded" : "Registration cancelled");
     await handleDonorFlow(chatId, data === "consent:yes" ? "yes" : "no");
   } else if (data?.startsWith("yes:") || data?.startsWith("accept:")) {
     try {
-      const result = await acceptNotification(data.slice(data.indexOf(":") + 1));
+      const chatId = callback?.message ? String(callback.message.chat.id) : undefined;
+      if (!chatId) throw new Error("Telegram chat context is missing");
+      const result = await acceptNotification(data.slice(data.indexOf(":") + 1), undefined, chatId);
       if (callback) await answerCallbackQuery(callback.id, "Match confirmed. Contact exchange is enabled.");
       if (callback?.message) await sendTelegramMessage(String(callback.message.chat.id), `🎉 Match confirmed with ${result.request.hospital}. Contact exchange is enabled.`);
     } catch (error) {
@@ -227,7 +361,9 @@ export async function POST(req: Request) {
     }
   } else if (data?.startsWith("no:")) {
     try {
-      await declineNotification(data.slice(3));
+      const chatId = callback?.message ? String(callback.message.chat.id) : undefined;
+      if (!chatId) throw new Error("Telegram chat context is missing");
+      await declineNotification(data.slice(3), chatId);
       if (callback) await answerCallbackQuery(callback.id, "No problem. You will not be contacted again for this request.");
     } catch (error) {
       if (callback) await answerCallbackQuery(callback.id, error instanceof Error ? error.message : "Unable to decline");

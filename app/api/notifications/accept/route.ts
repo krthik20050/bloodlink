@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { acceptNotification } from "@/lib/match-lifecycle";
-import { getAuthenticatedUser } from "@/lib/supabase/auth";
+import { getAuthenticatedUser, hasSameOrigin } from "@/lib/supabase/auth";
 
 export async function POST(req: Request) {
+  if (!hasSameOrigin(req)) return NextResponse.json({ error: "Cross-origin request blocked" }, { status: 403 });
   const user = await getAuthenticatedUser(req);
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   const data = z.object({ actionToken: z.string().uuid() }).safeParse(await req.json());

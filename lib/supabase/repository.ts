@@ -138,6 +138,15 @@ export async function clearTelegramConversation(chatId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function getOrCreateTelegramRequester(chatId: string): Promise<string> {
+  const existing = await db().from("telegram_requesters").select("requester_id").eq("chat_id", chatId).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return String(existing.data.requester_id);
+  const created = await db().from("telegram_requesters").insert({ chat_id: chatId }).select("requester_id").single();
+  if (created.error) throw created.error;
+  return String(created.data.requester_id);
+}
+
 export async function createTelegramDonor(input: {
   chatId: string;
   name: string;
@@ -178,6 +187,22 @@ export async function listRequestsByRequester(userId: string): Promise<BloodRequ
   const { data, error } = await db().from("blood_requests").select("*").eq("requester_id", userId).order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map(row => requestFromRow(row));
+}
+
+export async function listRequestsByRequesterId(requesterId: string): Promise<BloodRequest[]> {
+  return listRequestsByRequester(requesterId);
+}
+
+export async function cancelRequestForRequester(requestId: string, requesterId: string): Promise<boolean> {
+  const { data, error } = await db().from("blood_requests")
+    .update({ status: "CANCELLED" })
+    .eq("id", requestId)
+    .eq("requester_id", requesterId)
+    .in("status", ["OPEN", "MATCHED"])
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 }
 
 export async function getRequest(id: string): Promise<BloodRequest | null> {
@@ -234,6 +259,15 @@ export async function updateNotification(id: string, patch: Partial<Pick<Notific
   if (error) throw error;
 }
 
+export async function claimNotification(id: string, response: Exclude<Notification["response"], "PENDING">, respondedAt: string): Promise<boolean> {
+  const { data, error } = await db().from("notifications").update({
+    response,
+    responded_at: respondedAt,
+  }).eq("id", id).eq("response", "PENDING").select("id").maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
 export async function expirePendingNotifications(requestId: string, exceptId: string): Promise<void> {
   const { error } = await db().from("notifications").update({ response: "EXPIRED" }).eq("request_id", requestId).eq("response", "PENDING").neq("id", exceptId);
   if (error) throw error;
@@ -252,6 +286,15 @@ export async function updateDonor(id: string, patch: Partial<Pick<Donor, "active
     ...(patch.activeMatchRequestId ? { active_match_request_id: patch.activeMatchRequestId } : {}),
     ...(patch.lastNotifiedAt ? { last_notified_at: patch.lastNotifiedAt } : {}),
   }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function createMatch(requestId: string, donorId: string): Promise<void> {
+  const { error } = await db().from("matches").insert({
+    request_id: requestId,
+    donor_id: donorId,
+    contact_exchange_enabled_at: new Date().toISOString(),
+  });
   if (error) throw error;
 }
 

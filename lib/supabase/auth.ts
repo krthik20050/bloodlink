@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseUser, isSupabaseConfigured } from "./server";
+export { hasSameOrigin } from "../request-security";
 
 export type AuthenticatedUser = { id: string };
 

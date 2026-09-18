@@ -53,3 +53,16 @@ export function consentKeyboard():InlineKeyboard {
     { text: "No, cancel", callback_data: "consent:no" },
   ]] };
 }
+export function requesterUrgencyKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "Routine", callback_data: "request:urgency:ROUTINE" },
+    { text: "Urgent", callback_data: "request:urgency:URGENT" },
+    { text: "Emergency", callback_data: "request:urgency:EMERGENCY" },
+  ]] };
+}
+export function requesterConfirmationKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "Create request", callback_data: "request:confirm:yes" },
+    { text: "Cancel", callback_data: "request:confirm:no" },
+  ]] };
+}

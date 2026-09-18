@@ -28,6 +28,17 @@ export default function AuthPage() {
 
     setBusy(true);
     setStatus("");
+    if (mode === "sign-in") {
+      const demoResponse = await fetch("/api/admin/demo-login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ login: email, password }),
+      });
+      if (demoResponse.ok) {
+        window.location.assign("/admin");
+        return;
+      }
+    }
     const supabase = createSupabaseBrowserClient();
     const result = mode === "sign-in"
       ? await supabase.auth.signInWithPassword({ email, password })

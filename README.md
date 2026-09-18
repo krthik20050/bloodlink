@@ -6,6 +6,10 @@ BloodLink does **not** hold blood inventory, guarantee that a donor is medically
 
 ## 1. What the project does
 
+Production deployment, migration order, first-admin setup, Telegram webhook
+configuration, health verification, and rollback checks are documented in
+[`docs/deployment.md`](docs/deployment.md).
+
 The system has two connected user journeys.
 
 ### Requester journey
