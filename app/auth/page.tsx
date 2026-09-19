@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { BrandLogo } from "@/components/landing/BrandLogo";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
@@ -17,7 +18,8 @@ import {
 
 type MessageTone = "info" | "success" | "error";
 
-export default function AuthPage() {
+function AuthForm() {
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,6 +27,20 @@ export default function AuthPage() {
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<MessageTone>("info");
   const [busy, setBusy] = useState(false);
+
+  // ponytail: surface OAuth callback failures instead of a silent blank form
+  useEffect(() => {
+    const code = searchParams.get("error");
+    if (code === "missing_code" || code === "callback_failed") {
+      setMessage(
+        "Google sign-in could not be completed. Check the Supabase redirect URLs and Google console setup, then try again."
+      );
+      setTone("error");
+    } else if (code) {
+      setMessage(decodeURIComponent(code).replace(/_/g, " "));
+      setTone("error");
+    }
+  }, [searchParams]);
 
   function setStatus(nextMessage: string, nextTone: MessageTone = "info") {
     setMessage(nextMessage);
@@ -383,5 +399,13 @@ export default function AuthPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense>
+      <AuthForm />
+    </Suspense>
   );
 }
