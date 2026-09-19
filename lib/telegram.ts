@@ -61,8 +61,22 @@ export function requesterUrgencyKeyboard():InlineKeyboard {
   ]] };
 }
 export function requesterConfirmationKeyboard():InlineKeyboard {
-  return { inline_keyboard: [[
-    { text: "Create request", callback_data: "request:confirm:yes" },
-    { text: "Cancel", callback_data: "request:confirm:no" },
-  ]] };
+  return { inline_keyboard: [
+    [
+      { text: "✅ Create request", callback_data: "request:confirm:yes" },
+      { text: "❌ Cancel", callback_data: "request:confirm:no" },
+    ],
+    // ponytail: per-field edit jumps back to that step (data kept); answering flows forward to confirm again
+    [
+      { text: "✏️ Name", callback_data: "request:edit:name" },
+      { text: "✏️ Contact", callback_data: "request:edit:contact" },
+      { text: "✏️ Blood group", callback_data: "request:edit:blood" },
+    ],
+    [
+      { text: "✏️ Units", callback_data: "request:edit:units" },
+      { text: "✏️ Urgency", callback_data: "request:edit:urgency" },
+      { text: "✏️ Hospital", callback_data: "request:edit:hospital" },
+    ],
+    [{ text: "✏️ Location", callback_data: "request:edit:location" }],
+  ] };
 }

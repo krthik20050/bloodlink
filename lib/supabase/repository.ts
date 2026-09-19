@@ -147,6 +147,14 @@ export async function getOrCreateTelegramRequester(chatId: string): Promise<stri
   return String(created.data.requester_id);
 }
 
+// ponytail: patient name/contact ride along on the requester row so no collected field is dropped
+export async function updateTelegramRequester(chatId: string, input: { name: string; contact: string }): Promise<void> {
+  const { error } = await db().from("telegram_requesters").update({
+    contact_name: input.name, contact_detail: input.contact,
+  }).eq("chat_id", chatId);
+  if (error) throw error;
+}
+
 export async function createTelegramDonor(input: {
   chatId: string;
   name: string;
