@@ -60,6 +60,59 @@ export function requesterUrgencyKeyboard():InlineKeyboard {
     { text: "Emergency", callback_data: "request:urgency:EMERGENCY" },
   ]] };
 }
+const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// ponytail: Telegram has no native date picker; month grid with prev/next nav edited in place.
+// Nav clamps to 1900-01..current month so no future donation date can be tapped.
+export function donationCalendarKeyboard(year: number, month: number): InlineKeyboard {
+  const now = new Date();
+  let y = Math.min(Math.max(year, 1900), now.getFullYear());
+  let m = Math.min(Math.max(month, 1), 12);
+  if (y === now.getFullYear() && m > now.getMonth() + 1) m = now.getMonth() + 1;
+  const prev = m === 1 ? { y: Math.max(y - 1, 1900), m: 12 } : { y, m: m - 1 };
+  const next = (y === now.getFullYear() && m === now.getMonth() + 1) ? { y, m } : (m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 });
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const rows: InlineKeyboard["inline_keyboard"] = [[
+    { text: "‹", callback_data: `calnav:${prev.y}-${pad(prev.m)}` },
+    { text: `${monthNames[m - 1]} ${y}`, callback_data: "calnoop" },
+    { text: "›", callback_data: `calnav:${next.y}-${pad(next.m)}` },
+  ]];
+  const blanks = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+  const days = new Date(y, m, 0).getDate();
+  let row: Array<{ text: string; callback_data?: string }> = [];
+  for (let i = 0; i < blanks; i++) row.push({ text: "·", callback_data: "calnoop" });
+  for (let d = 1; d <= days; d++) {
+    row.push({ text: String(d), callback_data: `calday:${y}-${pad(m)}-${pad(d)}` });
+    if (row.length === 7) { rows.push(row); row = []; }
+  }
+  if (row.length) { while (row.length < 7) row.push({ text: "·", callback_data: "calnoop" }); rows.push(row); }
+  rows.push([{ text: "No previous donation", callback_data: "calday:none" }]);
+  return { inline_keyboard: rows };
+}
+
+export async function editTelegramCalendar(chatId: string, messageId: number, text: string, replyMarkup: InlineKeyboard): Promise<void> {
+  if (configured()) await api("editMessageText", { chat_id: chatId, message_id: messageId, text, reply_markup: replyMarkup });
+}
+
+// ponytail: donor review mirrors the requester pattern — confirm, per-field edit, cancel
+export function donorReviewKeyboard():InlineKeyboard {
+  return { inline_keyboard: [
+    [
+      { text: "✅ Register me", callback_data: "donor:confirm:yes" },
+      { text: "❌ Cancel", callback_data: "donor:confirm:no" },
+    ],
+    [
+      { text: "✏️ Name", callback_data: "donor:edit:name" },
+      { text: "✏️ Email", callback_data: "donor:edit:contact" },
+      { text: "✏️ Blood group", callback_data: "donor:edit:blood" },
+    ],
+    [
+      { text: "✏️ Last donation", callback_data: "donor:edit:last" },
+      { text: "✏️ Location", callback_data: "donor:edit:location" },
+    ],
+  ] };
+}
+
 export function requesterConfirmationKeyboard():InlineKeyboard {
   return { inline_keyboard: [
     [

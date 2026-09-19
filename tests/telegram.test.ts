@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { normalizeTelegramDonationDate } from "@/lib/telegram-registration";
+import { normalizeCalendarDate, normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
 
 describe("Telegram donor registration", () => {
   it.each([
     ["28/02/2005", "2005-02-28"],
     ["20/08/2005", "2005-08-20"],
+    ["28-02-2005", "2005-02-28"],
+    ["28 02 2005", "2005-02-28"],
+    ["28.02.2005", "2005-02-28"],
+    ["8/8/2005", "2005-08-08"],
+    ["8 8 2005", "2005-08-08"],
+    ["28/2/2005", "2005-02-28"],
   ])("normalizes %s", (input, expected) => {
     expect(normalizeTelegramDonationDate(input)).toBe(expected);
   });
 
-  it.each(["31/02/2005", "29/02/2005", "01/13/2005", "2005-02-28", "28/2/2005"])(
+  it.each(["31/02/2005", "29/02/2005", "01/13/2005", "2005-02-28", "2005/02/28", "tomorrow", ""])(
     "rejects impossible or incorrectly formatted date %s",
     input => expect(normalizeTelegramDonationDate(input)).toBeUndefined(),
   );
@@ -18,6 +24,17 @@ describe("Telegram donor registration", () => {
   it("accepts none", () => {
     expect(normalizeTelegramDonationDate("none")).toBeNull();
   });
+});
+
+describe("Telegram calendar dates", () => {
+  it("accepts exact ISO calendar dates", () => {
+    expect(normalizeCalendarDate("2005-02-28")).toBe("2005-02-28");
+  });
+
+  it.each(["28/02/2005", "2005-13-01", "2005-02-30", "not-a-date"])(
+    "rejects non-ISO or impossible calendar date %s",
+    input => expect(normalizeCalendarDate(input)).toBeUndefined(),
+  );
 });
 
 describe("Telegram requester validation", () => {

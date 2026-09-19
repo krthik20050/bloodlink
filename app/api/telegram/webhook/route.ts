@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { bloodGroups, type BloodGroup } from "@/lib/domain";
 import { formatTelegramRequest, isTelegramBloodGroup, parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
-import { normalizeTelegramDonationDate } from "@/lib/telegram-registration";
+import { normalizeCalendarDate, normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { acceptNotification, declineNotification } from "@/lib/match-lifecycle";
 import {
   clearTelegramConversation,
@@ -21,6 +21,9 @@ import {
 import {
   answerCallbackQuery,
   configureTelegramBot,
+  donationCalendarKeyboard,
+  donorReviewKeyboard,
+  editTelegramCalendar,
   sendTelegramMessage,
   sendTelegramReplyKeyboard,
   bloodGroupKeyboard,
@@ -39,7 +42,7 @@ type TelegramUpdate = {
   callback_query?: {
     id: string;
     data?: string;
-    message?: { chat: { id: number } };
+    message?: { message_id: number; chat: { id: number } };
   };
 };
 
@@ -276,13 +279,13 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
         await sendTelegramMessage(chatId, `Please send one of: ${bloodGroups.join(", ")}`);
       } else {
         await saveTelegramConversation(chatId, "donor_last_donation", { ...conversation.data, bloodGroup: value });
-        await sendTelegramMessage(chatId, "When was your last donation? Send DD/MM/YYYY (day/month/year), or type none.");
+        await sendDonationCalendar(chatId);
       }
       return true;
     case "donor_last_donation":
       const normalizedDate = value ? normalizeTelegramDonationDate(value) : undefined;
       if (normalizedDate === undefined) {
-        await sendTelegramMessage(chatId, "Use DD/MM/YYYY, for example 28/02/2005, or type none. Please enter a real calendar date.");
+        await sendTelegramMessage(chatId, "Tap a date above, or type it as day month year (for example 28/02/2005 or 28 02 2005), or type none.");
       } else {
         await saveTelegramConversation(chatId, "donor_location", {
           ...conversation.data,
@@ -318,6 +321,19 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
       } else if (!/^yes$/i.test(value ?? "")) {
         await sendTelegramMessage(chatId, "Choose yes to confirm receiving relevant donor notifications, or no to cancel.", consentKeyboard());
       } else {
+        // ponytail: consent yes -> review summary before any DB write
+        await saveTelegramConversation(chatId, "donor_review", conversation.data);
+        await sendTelegramMessage(chatId, donorSummary(conversation.data), donorReviewKeyboard());
+      }
+      return true;
+    case "donor_review": {
+      const normalized = (value ?? "").toLowerCase();
+      if (normalized === "no" || normalized === "cancel") {
+        await clearTelegramConversation(chatId);
+        await sendTelegramMessage(chatId, "Registration cancelled. Send /donate whenever you are ready.");
+      } else if (normalized === "edit") {
+        await sendTelegramMessage(chatId, donorSummary(conversation.data), donorReviewKeyboard());
+      } else if (normalized === "yes" || normalized === "confirm") {
         const data = conversation.data;
         const donor = await createTelegramDonor({
           chatId,
@@ -329,11 +345,63 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
           lastDonationDate: (data.lastDonationDate as string | null) ?? null,
         });
         await clearTelegramConversation(chatId);
-        await sendTelegramMessage(chatId, `✅ You’re registered, ${donor.name}.\n\nWe’ll notify you only about compatible nearby requests. Use /status to check your profile.`);
+        await sendTelegramMessage(chatId, `✅ You’re registered, ${donor.name}.\n\nWe’ll notify you here about compatible nearby requests. Use /status to check your profile.`);
+      } else {
+        await sendTelegramMessage(chatId, "Tap Register me to save, a ✏️ field to change one answer, or Cancel.", donorReviewKeyboard());
       }
       return true;
+    }
   }
   return true;
+}
+
+function donorSummary(data: Record<string, string | number | boolean | null>): string {
+  return `🩸 Please confirm your donor registration:\n\n• Name: ${String(data["name"] ?? "—")}\n• Email: ${String(data["contact"] ?? "—")}\n• Blood group: ${String(data["bloodGroup"] ?? "—")}\n• Last donation: ${String(data["lastDonationDate"] ?? "none")}\n• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}\n• Notifications: Yes, in this chat\n\nTap Register me to save, a ✏️ field to change just that answer, or Cancel.`;
+}
+
+async function sendDonationCalendar(chatId: string, isoMonth?: string | number | boolean | null): Promise<void> {
+  const now = new Date();
+  let y = now.getFullYear();
+  let m = now.getMonth() + 1;
+  const match = typeof isoMonth === "string" ? isoMonth.match(/^(\d{4})-(\d{2})/) : null;
+  if (match) { y = Number(match[1]); m = Number(match[2]); }
+  await sendTelegramMessage(chatId, "When was your last donation? Tap a date below, or type it as day month year (for example 28 02 2005), or type none.", donationCalendarKeyboard(y, m));
+}
+
+// ponytail: edit buttons jump to one step with data kept; the step's normal handler flows forward again
+async function handleDonorEdit(chatId: string, field: string): Promise<void> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("donor_")) return;
+  const data = conversation.data;
+  switch (field) {
+    case "name":
+      await saveTelegramConversation(chatId, "donor_name", data);
+      await sendTelegramMessage(chatId, "What is your full name?");
+      break;
+    case "contact":
+      await saveTelegramConversation(chatId, "donor_email", data);
+      await sendTelegramMessage(chatId, "What email address should we use for confirmed matches?");
+      break;
+    case "blood":
+      await saveTelegramConversation(chatId, "donor_blood_group", data);
+      await sendTelegramMessage(chatId, "Which blood group do you have?", bloodGroupKeyboard());
+      break;
+    case "last":
+      await saveTelegramConversation(chatId, "donor_last_donation", data);
+      await sendDonationCalendar(chatId, typeof data.lastDonationDate === "string" ? data.lastDonationDate : undefined);
+      break;
+    case "location":
+      await saveTelegramConversation(chatId, "donor_location", data);
+      await sendTelegramReplyKeyboard(chatId, "Please share your location using the button below.", {
+        keyboard: [[{ text: "Share my location", request_location: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      });
+      break;
+    default:
+      await sendTelegramMessage(chatId, donorSummary(data), donorReviewKeyboard());
+      break;
+  }
 }
 
 async function handleMessage(chatId: string, text?: string, location?: { latitude: number; longitude: number }) {
@@ -427,6 +495,47 @@ export async function POST(req: Request) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, data === "consent:yes" ? "Consent recorded" : "Registration cancelled");
     await handleDonorFlow(chatId, data === "consent:yes" ? "yes" : "no");
+  } else if (data === "calnoop" && callback) {
+    await answerCallbackQuery(callback.id, "");
+  } else if (data?.startsWith("calnav:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const match = data.slice("calnav:".length).match(/^(\d{4})-(\d{2})$/);
+    if (match && callback.message.message_id) {
+      await answerCallbackQuery(callback.id, "");
+      try {
+        await editTelegramCalendar(chatId, callback.message.message_id, "When was your last donation? Tap a date below, or type it as day month year (for example 28 02 2005), or type none.", donationCalendarKeyboard(Number(match[1]), Number(match[2])));
+      } catch (error) {
+        console.error(JSON.stringify({ event: "telegram_calendar_nav_failed", error: error instanceof Error ? error.message : String(error) }));
+      }
+    } else if (callback) await answerCallbackQuery(callback.id, "");
+  } else if (data?.startsWith("calday:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const picked = data.slice("calday:".length);
+    // ponytail: reuse the text path — calendar emits exact dates, the normalizer re-validates them
+    const conversation = await getTelegramConversation(chatId);
+    if (conversation?.state !== "donor_last_donation") {
+      if (callback) await answerCallbackQuery(callback.id, "");
+    } else if (picked === "none") {
+      await answerCallbackQuery(callback.id, "No previous donation");
+      await handleDonorFlow(chatId, "none");
+    } else {
+      const iso = normalizeCalendarDate(picked);
+      if (!iso) {
+        await answerCallbackQuery(callback.id, "That date is not valid");
+      } else {
+        await answerCallbackQuery(callback.id, "Date selected");
+        const [y, m, d] = iso.split("-").map(Number);
+        await handleDonorFlow(chatId, `${d} ${m} ${y}`);
+      }
+    }
+  } else if (data?.startsWith("donor:edit:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "What should it be instead?");
+    await handleDonorEdit(chatId, data.slice("donor:edit:".length));
+  } else if (data?.startsWith("donor:confirm:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, data.endsWith(":yes") ? "Registration confirmed" : "Registration cancelled");
+    await handleDonorFlow(chatId, data.endsWith(":yes") ? "yes" : "no");
   } else if (data?.startsWith("yes:") || data?.startsWith("accept:")) {
     try {
       const chatId = callback?.message ? String(callback.message.chat.id) : undefined;
