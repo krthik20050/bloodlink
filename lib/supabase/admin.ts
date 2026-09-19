@@ -22,7 +22,8 @@ export async function isAdminUser(userId: string): Promise<boolean> {
 export async function getAdminUser(request: Request): Promise<AuthenticatedUser | null> {
   if (await hasDemoAdminSession(request)) return { id: "demo-admin" };
   if (!isSupabaseConfigured()) return null;
-  const user = await getAuthenticatedUser(request);
+  // ponytail: missing/expired session is "not admin", never a 500
+  const user = await getAuthenticatedUser(request).catch(() => null);
   if (!user || !(await isAdminUser(user.id))) return null;
   return user;
 }
