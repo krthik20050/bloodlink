@@ -16,11 +16,11 @@ export const Hero: React.FC<HeroProps> = ({ user }) => {
 
           <h1 id="hero-title" className="rs-hero-title rs-hero-animate-title">
             Find the right person<br />
-            when it matters.
+            when it matters the most.
           </h1>
 
           <p className="rs-hero-description rs-hero-animate-desc">
-            RaktaSetu connects blood requests with compatible, eligible donors nearby — privately.
+            RaktaSetu connects blood requests with compatible, eligible donors nearby privately.
           </p>
 
           <div className="rs-hero-buttons rs-hero-animate-buttons">

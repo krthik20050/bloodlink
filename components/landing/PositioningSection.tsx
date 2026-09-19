@@ -14,7 +14,7 @@ export const PositioningSection: React.FC = () => {
               A COORDINATION LAYER.
             </h2>
             <p className="rs-positioning-lede">
-              Open directories publish phone numbers and leave frantic families to make cold calls. RaktaSetu operates as an automated coordination layer — determining compatibility, eligibility, and proximity before initiating contact.
+              Open directories publish phone numbers and leave frantic families to make cold calls. RaktaSetu operates as an automated coordination layer - determining compatibility, eligibility, and proximity before initiating contact.
             </p>
           </ScrollReveal>
 

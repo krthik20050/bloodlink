@@ -10,8 +10,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "RaktaSetu — Precision Blood Coordination Layer",
-  description: "RaktaSetu connects blood requests with compatible, eligible donors nearby — privately and deterministically.",
+  title: "RaktaSetu - Precision Blood Coordination Layer",
+  description: "RaktaSetu connects blood requests with compatible, eligible donors nearby privately and deterministically.",
 };
 
 export default function RootLayout({

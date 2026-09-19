@@ -1328,7 +1328,7 @@ button, input, select, textarea {
 }
 
 /* ==========================================================================
-   REQUEST PAGE (/request) — 2-COLUMN MASTER REDESIGN
+   REQUEST PAGE (/request) - 2-COLUMN MASTER REDESIGN
    ========================================================================== */
 
 .rs-request-page-main {
@@ -2513,7 +2513,7 @@ button, input, select, textarea {
 }
 
 /* ==========================================================================
-   AUTH PAGE (/auth) — CENTERED 2-COLUMN SURGICAL REFINEMENT
+   AUTH PAGE (/auth) - CENTERED 2-COLUMN SURGICAL REFINEMENT
    Desktop: max-width 1120px, min-height calc(100vh - 64px), centered.
    Left: Brand / Welcome / 3-node signature
    Right: Auth Form (420-460px max width) with Google button & Eye toggle

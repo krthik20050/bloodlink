@@ -76,9 +76,9 @@ export const LocationStep: React.FC<LocationStepProps> = ({
             {state === "requesting"
               ? "Getting location…"
               : state === "denied"
-              ? "Location permission needed — Try again"
+              ? "Location permission needed - Try again"
               : state === "error"
-              ? "Couldn't access your location — Try again"
+              ? "Couldn't access your location - Try again"
               : "Use my location"}
           </button>
         )}
