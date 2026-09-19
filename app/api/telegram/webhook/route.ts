@@ -4,6 +4,7 @@ import { normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { acceptNotification, declineNotification } from "@/lib/match-lifecycle";
 import {
   clearTelegramConversation,
+  createRequest,
   createTelegramDonor,
   disconnectTelegramDonor,
   getRequest,
@@ -19,7 +20,9 @@ import {
   sendTelegramReplyKeyboard,
   bloodGroupKeyboard,
   consentKeyboard,
+  reviewKeyboard,
   telegramEntryKeyboard,
+  urgencyKeyboard,
 } from "@/lib/telegram";
 
 type TelegramUpdate = {
@@ -38,12 +41,13 @@ type TelegramUpdate = {
 const commands = [
   { command: "start", description: "Open the BloodLink menu" },
   { command: "donate", description: "Register as a blood donor" },
+  { command: "request", description: "Create a blood request" },
   { command: "help", description: "Show available actions" },
   { command: "status", description: "Show your donor status" },
   { command: "cancel", description: "Cancel the current flow" },
   { command: "disconnect", description: "Disconnect this Telegram chat" },
 ];
-const helpText = "Use /start to open the menu.\n\nDonate: register directly in Telegram.\nNeed blood: create a request on BloodLink.\n/status: show your linked donor status.\n/cancel: stop the current flow.\n/disconnect: remove this chat from your donor profile.";
+const helpText = "Use /start to open the menu.\n\n/donate: register as a donor directly in Telegram.\n/request: create a blood request directly in Telegram.\n/status: show your linked donor status.\n/cancel: stop the current flow.\n/disconnect: remove this chat from your donor profile.";
 
 function command(text: string): { name: string; payload?: string } | null {
   const match = text.trim().match(/^\/([a-z]+)(?:@[a-z0-9_]+)?(?:\s+(.+))?$/i);
@@ -134,6 +138,20 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
       } else if (!/^yes$/i.test(value ?? "")) {
         await sendTelegramMessage(chatId, "Choose yes to confirm receiving relevant donor notifications, or no to cancel.", consentKeyboard());
       } else {
+        // ponytail: consent yes -> review summary before any DB write
+        await saveTelegramConversation(chatId, "donor_review", conversation.data);
+        await sendTelegramMessage(chatId, donorSummary(conversation.data), reviewKeyboard("donor_confirm:"));
+      }
+      return true;
+    case "donor_review": {
+      const normalized = (value ?? "").toLowerCase();
+      if (normalized === "no" || normalized === "cancel") {
+        await clearTelegramConversation(chatId);
+        await sendTelegramMessage(chatId, "Registration cancelled. Send /donate whenever you are ready.");
+      } else if (normalized === "edit") {
+        await saveTelegramConversation(chatId, "donor_name");
+        await sendTelegramMessage(chatId, "No problem — let’s edit. What is your full name?");
+      } else if (normalized === "yes" || normalized === "confirm") {
         const data = conversation.data;
         const donor = await createTelegramDonor({
           chatId,
@@ -145,9 +163,136 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
           lastDonationDate: (data.lastDonationDate as string | null) ?? null,
         });
         await clearTelegramConversation(chatId);
-        await sendTelegramMessage(chatId, `✅ You’re registered, ${donor.name}.\n\nWe’ll notify you only about compatible nearby requests. Use /status to check your profile.`);
+        await sendTelegramMessage(chatId, `✅ You’re registered, ${donor.name}.\n\nWe’ll notify you here about compatible nearby requests. Use /status to check your profile.`);
+      } else {
+        await sendTelegramMessage(chatId, "Please confirm: reply Yes to save, Edit to change your answers, or No to cancel.", reviewKeyboard("donor_confirm:"));
       }
       return true;
+    }
+  }
+  return true;
+}
+
+function donorSummary(data: Record<string, string | number | boolean | null>): string {
+  return `🩸 Please confirm your donor registration:\n\n• Name: ${data.name ?? "—"}\n• Email: ${data.contact ?? "—"}\n• Blood group: ${data.bloodGroup ?? "—"}\n• Last donation: ${data.lastDonationDate ?? "none"}\n• Location: ${data.latitude ?? "—"}, ${data.longitude ?? "—"}\n• Notifications: Yes, in this chat\n\nIs this correct? Tap Yes to save, Edit to start over, or No to cancel. You can also reply with Yes / Edit / No.`;
+}
+
+function requestSummary(data: Record<string, string | number | boolean | null>): string {
+  return `🩸 Please confirm your blood request:\n\n• Patient/contact name: ${data.name ?? "—"}\n• Contact email: ${data.contact ?? "—"}\n• Blood group needed: ${data.bloodGroup ?? "—"}\n• Units: ${data.unitsRequired ?? "—"}\n• Hospital: ${data.hospital ?? "—"}\n• Urgency: ${data.urgency ?? "—"}\n• Location: ${data.latitude ?? "—"}, ${data.longitude ?? "—"}\n• Updates: Yes, in this chat\n\nIs this correct? Tap Yes to send to our servers, Edit to start over, or No to cancel. You can also reply with Yes / Edit / No.`;
+}
+
+async function startRequestFlow(chatId: string) {
+  await saveTelegramConversation(chatId, "request_name");
+  await sendTelegramMessage(chatId, "🩸 Let’s create your blood request.\n\nWhat is the patient or contact person’s full name?");
+}
+
+async function handleRequestFlow(chatId: string, text: string | undefined, location?: { latitude: number; longitude: number }): Promise<boolean> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("request_")) return false;
+  const value = text?.trim();
+
+  switch (conversation.state) {
+    case "request_name":
+      if (!value || value.length < 2 || value.length > 60) {
+        await sendTelegramMessage(chatId, "Please send the patient/contact name (2–60 characters).");
+      } else {
+        await saveTelegramConversation(chatId, "request_contact", { name: value });
+        await sendTelegramMessage(chatId, "What email address should we use for match updates?");
+      }
+      return true;
+    case "request_contact":
+      if (!value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        await sendTelegramMessage(chatId, "Please send a valid email address.");
+      } else {
+        await saveTelegramConversation(chatId, "request_blood_group", { ...conversation.data, contact: value });
+        await sendTelegramMessage(chatId, "Which blood group is needed?", bloodGroupKeyboard());
+      }
+      return true;
+    case "request_blood_group":
+      if (!value || !bloodGroups.includes(value as BloodGroup)) {
+        await sendTelegramMessage(chatId, `Please send one of: ${bloodGroups.join(", ")}`);
+      } else {
+        await saveTelegramConversation(chatId, "request_units", { ...conversation.data, bloodGroup: value });
+        await sendTelegramMessage(chatId, "How many units are needed? Send a number from 1 to 10.");
+      }
+      return true;
+    case "request_units": {
+      const units = Number(value);
+      if (!value || !Number.isInteger(units) || units < 1 || units > 10) {
+        await sendTelegramMessage(chatId, "Please send a whole number from 1 to 10.");
+      } else {
+        await saveTelegramConversation(chatId, "request_hospital", { ...conversation.data, unitsRequired: units });
+        await sendTelegramMessage(chatId, "Which hospital should donors go to? Send the hospital name.");
+      }
+      return true;
+    }
+    case "request_hospital":
+      if (!value || value.length < 2 || value.length > 100) {
+        await sendTelegramMessage(chatId, "Please send the hospital name (2–100 characters).");
+      } else {
+        await saveTelegramConversation(chatId, "request_urgency", { ...conversation.data, hospital: value });
+        await sendTelegramMessage(chatId, "How urgent is this request?", urgencyKeyboard());
+      }
+      return true;
+    case "request_urgency": {
+      const urgency = (value ?? "").toUpperCase();
+      if (urgency !== "ROUTINE" && urgency !== "URGENT" && urgency !== "EMERGENCY") {
+        await sendTelegramMessage(chatId, "Please choose Standard, Priority, or Emergency.", urgencyKeyboard());
+      } else {
+        await saveTelegramConversation(chatId, "request_location", { ...conversation.data, urgency });
+        await sendTelegramReplyKeyboard(chatId, "Please share the hospital/facility location using the button below. We use it to find nearby donors.", {
+          keyboard: [[{ text: "Share my location", request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        });
+      }
+      return true;
+    }
+    case "request_location":
+      if (!location) {
+        await sendTelegramReplyKeyboard(chatId, "Please tap “Share my location” so we can find nearby donors.", {
+          keyboard: [[{ text: "Share my location", request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        });
+      } else {
+        await saveTelegramConversation(chatId, "request_review", {
+          ...conversation.data,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        });
+        const saved = await getTelegramConversation(chatId);
+        await sendTelegramMessage(chatId, requestSummary(saved?.data ?? conversation.data), reviewKeyboard("request_confirm:"));
+      }
+      return true;
+    case "request_review": {
+      const normalized = (value ?? "").toLowerCase();
+      if (normalized === "no" || normalized === "cancel") {
+        await clearTelegramConversation(chatId);
+        await sendTelegramMessage(chatId, "Blood request cancelled. Send /request whenever you are ready.");
+      } else if (normalized === "edit") {
+        await saveTelegramConversation(chatId, "request_name");
+        await sendTelegramMessage(chatId, "No problem — let’s edit. What is the patient/contact name?");
+      } else if (normalized === "yes" || normalized === "confirm") {
+        const data = conversation.data;
+        // ponytail: Telegram requesters have no Supabase Auth user; requesterId encodes the chat so match updates can find this chat later
+        const request = await createRequest({
+          requesterId: `telegram:${chatId}`,
+          bloodGroup: data.bloodGroup as BloodGroup,
+          unitsRequired: Number(data.unitsRequired ?? 1),
+          hospital: String(data.hospital),
+          location: { latitude: Number(data.latitude), longitude: Number(data.longitude) },
+          urgency: (data.urgency as "ROUTINE" | "URGENT" | "EMERGENCY") ?? "URGENT",
+          status: "OPEN",
+          createdAt: new Date().toISOString(),
+        });
+        await clearTelegramConversation(chatId);
+        await sendTelegramMessage(chatId, `✅ Request saved to our servers.\n\n${request.unitsRequired} unit(s) of ${request.bloodGroup} for ${request.hospital} (${request.urgency}).\n\nWe’ll notify compatible nearby donors privately and send match updates here in this chat.`);
+      } else {
+        await sendTelegramMessage(chatId, "Please confirm: reply Yes to send, Edit to change your answers, or No to cancel.", reviewKeyboard("request_confirm:"));
+      }
+      return true;
+    }
   }
   return true;
 }
@@ -155,6 +300,7 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
 async function handleMessage(chatId: string, text?: string, location?: { latitude: number; longitude: number }) {
   const parsed = text ? command(text) : null;
   if (!parsed && await handleDonorFlow(chatId, text, location)) return;
+  if (!parsed && await handleRequestFlow(chatId, text, location)) return;
   if (!parsed) {
     await sendTelegramMessage(chatId, helpText, telegramEntryKeyboard());
     return;
@@ -162,6 +308,11 @@ async function handleMessage(chatId: string, text?: string, location?: { latitud
   switch (parsed.name) {
     case "donate":
       await startDonorFlow(chatId);
+      break;
+    case "request":
+    case "need":
+    case "needblood":
+      await startRequestFlow(chatId);
       break;
     case "start": {
       const linked = parsed.payload ? await linkTelegramDonor(parsed.payload, chatId) : null;
@@ -205,14 +356,30 @@ export async function POST(req: Request) {
     await answerCallbackQuery(callback.id, "Starting donor registration");
     await startDonorFlow(String(callback.message.chat.id));
   } else if (data === "need_blood" && callback?.message) {
-    await answerCallbackQuery(callback.id, "Opening blood request");
-    const requestUrl = `${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? ""}/request`;
-    await sendTelegramMessage(String(callback.message.chat.id), "Create a blood request on BloodLink:", { inline_keyboard: [[{ text: "Open blood request", url: requestUrl }]] });
+    await answerCallbackQuery(callback.id, "Starting blood request");
+    await startRequestFlow(String(callback.message.chat.id));
   } else if (data?.startsWith("blood:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
     const group = data.slice(6);
     await answerCallbackQuery(callback.id, "Blood group selected");
-    await handleDonorFlow(chatId, group);
+    // ponytail: same blood buttons serve both flows; route by conversation state
+    const conversation = await getTelegramConversation(chatId);
+    if (conversation?.state.startsWith("request_")) await handleRequestFlow(chatId, group);
+    else await handleDonorFlow(chatId, group);
+  } else if (data?.startsWith("req_urgency:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "Urgency selected");
+    await handleRequestFlow(chatId, data.slice("req_urgency:".length));
+  } else if (data?.startsWith("donor_confirm:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const action = data.slice("donor_confirm:".length);
+    await answerCallbackQuery(callback.id, action === "yes" ? "Registration confirmed" : action === "edit" ? "Let’s edit your answers" : "Registration cancelled");
+    await handleDonorFlow(chatId, action);
+  } else if (data?.startsWith("request_confirm:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const action = data.slice("request_confirm:".length);
+    await answerCallbackQuery(callback.id, action === "yes" ? "Request confirmed" : action === "edit" ? "Let’s edit your answers" : "Request cancelled");
+    await handleRequestFlow(chatId, action);
   } else if (data?.startsWith("consent:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, data === "consent:yes" ? "Consent recorded" : "Registration cancelled");

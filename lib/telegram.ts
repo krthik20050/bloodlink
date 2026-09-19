@@ -53,3 +53,18 @@ export function consentKeyboard():InlineKeyboard {
     { text: "No, cancel", callback_data: "consent:no" },
   ]] };
 }
+export function urgencyKeyboard(prefix="req_urgency:"):InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "Standard (24-48h)", callback_data: `${prefix}ROUTINE` },
+    { text: "Priority (6-12h)", callback_data: `${prefix}URGENT` },
+    { text: "Emergency (now)", callback_data: `${prefix}EMERGENCY` },
+  ]] };
+}
+// ponytail: one shared review keyboard for donor + request flows, per-flow callbacks if routing matters
+export function reviewKeyboard(prefix="confirm:"):InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "✅ Yes, confirm", callback_data: `${prefix}yes` },
+    { text: "✏️ Edit", callback_data: `${prefix}edit` },
+    { text: "❌ No, cancel", callback_data: `${prefix}no` },
+  ]] };
+}
