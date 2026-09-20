@@ -297,6 +297,7 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
             urgency: data.urgency as "ROUTINE" | "URGENT" | "EMERGENCY",
             status: "OPEN",
             createdAt: new Date().toISOString(),
+            contact: (data.contact as string).trim(),
           });
         } catch (error) {
           console.error(JSON.stringify({ event: "telegram_request_create_failed", error: error instanceof Error ? error.message : String(error) }));

@@ -3225,3 +3225,9 @@ button, input, select, textarea {
   .location-actions { justify-content: flex-start; }
   .auth-layout { grid-template-columns: 1fr; }
 }
+
+/* Requester contact field (shared only on match) */
+.rs-contact-wrapper { position: relative; }
+.rs-contact-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--rs-secondary); pointer-events: none; }
+.rs-contact-input { padding-left: 42px; }
+.rs-success-contact-note { margin: 8px 0 0; font-size: 0.92rem; color: var(--rs-secondary); }

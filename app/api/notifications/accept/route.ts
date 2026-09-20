@@ -12,10 +12,29 @@ export async function POST(req: Request) {
   try {
     const { request, donor } = await acceptNotification(data.data.actionToken, user.id);
     return NextResponse.json({
-      request: { id: request.id, status: request.status, contactExchange: "ENABLED" },
+      request: { id: request.id, status: request.status, contactExchange: "ENABLED", contact: request.contact },
       donor: { name: donor.name, contact: donor.contact },
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to accept" }, { status: 409 });
+    const message = error instanceof Error ? error.message : "Unable to accept";
+    console.error(JSON.stringify({ event: "notification_accept_failed", error: message }));
+    if (message === "Notification not found" || message === "Match record no longer exists") {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
+    if (message.startsWith("Notification is not assigned")) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
+    if (message === "This notification has expired") {
+      return NextResponse.json({ error: message }, { status: 410 });
+    }
+    if (
+      message === "This notification has already been handled" ||
+      message === "This request is no longer open" ||
+      message === "Donor no longer passes the system filters" ||
+      message === "Donor is already matched to another request"
+    ) {
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

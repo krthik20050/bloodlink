@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, KeyboardEvent } from "react";
 import Link from "next/link";
-import { bloodGroups, BloodGroup } from "@/lib/domain";
+import { bloodGroups, BloodGroup, isValidRequestContact } from "@/lib/domain";
 import {
   MapPin,
   ChevronDown,
@@ -14,10 +14,11 @@ import {
   Clock,
   AlertCircle,
   RefreshCw,
+  Phone,
 } from "lucide-react";
 
 type Outcome = {
-  request: { id: string; bloodGroup: string; unitsRequired: number; hospital: string; urgency: string };
+  request: { id: string; bloodGroup: string; unitsRequired: number; hospital: string; urgency: string; contact: string };
   bloodBanks: { name: string; availability: string; distanceKm: number; source: string }[];
 };
 
@@ -60,6 +61,8 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
   const [bloodGroup, setBloodGroup] = useState<BloodGroup>("O+");
   const [unitsRequired, setUnitsRequired] = useState<number>(1);
   const [hospital, setHospital] = useState<string>("Amala Hospital");
+  const [contact, setContact] = useState<string>(initialUser?.email ?? "");
+  const [contactError, setContactError] = useState<string>("");
   const [urgency, setUrgency] = useState<(typeof URGENCY_OPTIONS)[number]["id"]>("URGENT");
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
@@ -173,11 +176,13 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
     try {
       const res = await fetch(`/api/requests/${requestId}/match`, { method: "POST" });
       const data = await res.json();
-      if (res.ok && data.result) {
+      if (res.ok && (data.result || typeof data.selectedCount === "number")) {
+        const selected = data.selectedCount ?? data.result.selected?.length ?? 0;
+        const excluded = data.excludedCount ?? data.result.excluded?.length ?? 0;
         setMatchingResult({
-          selectedCount: data.result.selected?.length ?? 0,
-          excludedCount: data.result.excluded?.length ?? 0,
-          message: `${data.result.selected?.length ?? 0} compatible donor(s) received the private notification wave. ${data.result.excluded?.length ?? 0} were safely excluded.`,
+          selectedCount: selected,
+          excludedCount: excluded,
+          message: `${selected} compatible donor(s) received the private notification wave. ${excluded} were safely excluded.`,
         });
       } else {
         setMatchingResult({
@@ -203,6 +208,12 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
     setServerError("");
     setMatchingResult(null);
 
+    if (!isValidRequestContact(contact)) {
+      setContactError("Enter a phone number or email where the matched donor can reach you.");
+      return;
+    }
+    setContactError("");
+
     if (!location) {
       setLocationStatus("denied");
       triggerLocationShake();
@@ -220,6 +231,7 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
           bloodGroup,
           unitsRequired,
           hospital: hospital || "Amala Hospital",
+          contact: contact.trim(),
           latitude: location.latitude,
           longitude: location.longitude,
           urgency,
@@ -273,6 +285,9 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
         </h2>
         <p className="rs-success-subtitle">
           Destination: <strong>{outcome.request.hospital}</strong> · Priority: <strong>{outcome.request.urgency}</strong>
+        </p>
+        <p className="rs-success-contact-note">
+          Your contact ({outcome.request.contact}) stays private until a donor accepts, then it is shared with them alone.
         </p>
 
         {/* Official Blood Bank Availability Section */}
@@ -496,7 +511,41 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
           </div>
         </div>
 
-        {/* 4. Urgency Level (3 Cards: STANDARD, URGENT, EMERGENCY) */}
+        {/* 4. Contact for Match (phone or email, shared only on match) */}
+        <div className="rs-form-field">
+          <div className="rs-field-label-row">
+            <label className="rs-form-label" htmlFor="req-contact">
+              Your contact
+            </label>
+            <span className="rs-field-annotation">Shared only with the matched donor</span>
+          </div>
+
+          <div className="rs-contact-wrapper">
+            <Phone size={18} className="rs-contact-icon" aria-hidden="true" />
+            <input
+              id="req-contact"
+              type="text"
+              value={contact}
+              onChange={(e) => {
+                setContact(e.target.value);
+                if (contactError) setContactError("");
+              }}
+              placeholder="Phone number or email"
+              className="rs-form-input rs-contact-input"
+              autoComplete="tel"
+              required
+              aria-invalid={Boolean(contactError)}
+              aria-describedby={contactError ? "req-contact-error" : undefined}
+            />
+          </div>
+          {contactError ? (
+            <span id="req-contact-error" className="rs-field-error" role="alert">{contactError}</span>
+          ) : (
+            <span className="rs-form-helper">The donor sees this only after accepting your request.</span>
+          )}
+        </div>
+
+        {/* 5. Urgency Level (3 Cards: STANDARD, URGENT, EMERGENCY) */}
         <div className="rs-form-field">
           <div className="rs-field-label-row">
             <label className="rs-form-label" id="req-urgency-label">
