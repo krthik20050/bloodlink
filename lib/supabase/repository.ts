@@ -40,6 +40,7 @@ function requestFromRow(row: Record<string, unknown>): BloodRequest {
     status: row.status as BloodRequest["status"],
     createdAt: String(row.created_at),
     matchedDonorId: (row.matched_donor_id as string | null) ?? null,
+    contact: String(row.contact ?? ""),
   };
 }
 
@@ -138,6 +139,16 @@ export async function clearTelegramConversation(chatId: string): Promise<void> {
   if (error) throw error;
 }
 
+// ponytail: atomic compare-and-swap on conversation state — a retried/double-tapped
+// confirm only wins once; losers see 0 rows and skip the create
+export async function claimTelegramConversation(chatId: string, fromState: string, toState: string, data: TelegramConversation["data"] = {}): Promise<boolean> {
+  const { data: rows, error } = await db().from("telegram_conversations").update({
+    state: toState, data, updated_at: new Date().toISOString(),
+  }).eq("chat_id", chatId).eq("state", fromState).select("chat_id");
+  if (error) throw error;
+  return (rows?.length ?? 0) > 0;
+}
+
 export async function getOrCreateTelegramRequester(chatId: string): Promise<string> {
   const existing = await db().from("telegram_requesters").select("requester_id").eq("chat_id", chatId).maybeSingle();
   if (existing.error) throw existing.error;
@@ -229,6 +240,7 @@ export async function createRequest(input: Omit<BloodRequest, "id" | "matchedDon
     longitude: input.location.longitude,
     urgency: input.urgency,
     status: input.status,
+    contact: input.contact,
   }).select("*").single();
   if (error) throw error;
   return requestFromRow(data);
