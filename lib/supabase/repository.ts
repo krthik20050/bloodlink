@@ -365,14 +365,38 @@ export async function updateRequest(id: string, patch: Partial<Pick<BloodRequest
   if (error) throw error;
 }
 
-export async function updateDonor(id: string, patch: Partial<Pick<Donor, "activeMatchRequestId" | "lastNotifiedAt">>): Promise<void> {
+export async function updateDonor(id: string, patch: Partial<Pick<Donor, "activeMatchRequestId" | "lastNotifiedAt" | "notificationConsent" | "availability">>): Promise<void> {
   // ponytail: undefined = absent, explicit null clears the lock
-  const values: Record<string, string | null> = {};
+  const values: Record<string, string | boolean | null> = {};
   if (patch.activeMatchRequestId !== undefined) values.active_match_request_id = patch.activeMatchRequestId;
   if (patch.lastNotifiedAt !== undefined) values.last_notified_at = patch.lastNotifiedAt;
+  if (patch.notificationConsent !== undefined) values.notification_consent = patch.notificationConsent;
+  if (patch.availability !== undefined) values.availability_status = patch.availability;
   if (Object.keys(values).length === 0) return;
   const { error } = await db().from("donors").update(values).eq("id", id);
   if (error) throw error;
+}
+
+export interface DonationRecord { requestId: string; date: string; hospital: string; bloodGroup: string; units: number }
+// ponytail: accepted matches = completed donations; two cheap queries, no join syntax risk
+export async function listDonationsByDonor(donorId: string): Promise<DonationRecord[]> {
+  const { data: matches, error } = await db().from("matches").select("request_id, created_at").eq("donor_id", donorId).order("created_at", { ascending: false });
+  if (error) throw error;
+  if (!matches || matches.length === 0) return [];
+  const ids = matches.map((m) => String((m as Record<string, unknown>).request_id));
+  const { data: requests, error: reqError } = await db().from("blood_requests").select("id, hospital, blood_group, units_required, created_at").in("id", ids);
+  if (reqError) throw reqError;
+  const byId = new Map((requests ?? []).map((r) => [String((r as Record<string, unknown>).id), r as Record<string, unknown>]));
+  return ids.map((id, i) => {
+    const r = byId.get(id);
+    return {
+      requestId: id,
+      date: String((matches[i] as Record<string, unknown>).created_at),
+      hospital: r ? String(r.hospital) : "—",
+      bloodGroup: r ? String(r.blood_group) : "—",
+      units: r ? Number(r.units_required) : 0,
+    };
+  });
 }
 
 // ponytail: conditional donor claim — same donor matching 2 requests concurrently; loser sees no row

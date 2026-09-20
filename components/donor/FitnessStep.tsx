@@ -166,7 +166,7 @@ export const FitnessStep: React.FC<FitnessStepProps> = ({ value, onChange, error
           placeholder="e.g. 62"
           className="rs-form-input"
         />
-        <span className="rs-form-helper">Minimum 45 kg to donate.</span>
+        <span className="rs-form-helper">Leave empty if you don&apos;t know — you stay eligible and can continue; your profile shows as unverified.</span>
       </div>
 
       <div className="rs-form-field">
@@ -189,7 +189,7 @@ export const FitnessStep: React.FC<FitnessStepProps> = ({ value, onChange, error
           placeholder="e.g. 13.5"
           className="rs-form-input"
         />
-        <span className="rs-form-helper">12.5 g/dL or above is required. Skipping marks your profile unverified.</span>
+        <span className="rs-form-helper">12.5 g/dL or above is required. Leave empty if you don&apos;t know — you stay eligible and can continue; your profile shows as unverified.</span>
       </div>
 
       <div className="rs-form-field">
@@ -227,7 +227,7 @@ export const FitnessStep: React.FC<FitnessStepProps> = ({ value, onChange, error
             className="rs-form-input"
           />
         </div>
-        <span className="rs-form-helper">Usual range 100\u2013180 / 50\u2013100. Skipping marks your profile unverified.</span>
+        <span className="rs-form-helper">Usual range 100-180 / 50-100. Leave empty if you don&apos;t know — you stay eligible and can continue.</span>
       </div>
 
       <div className="rs-form-field">
@@ -249,7 +249,7 @@ export const FitnessStep: React.FC<FitnessStepProps> = ({ value, onChange, error
           placeholder="e.g. 72"
           className="rs-form-input"
         />
-        <span className="rs-form-helper">Usual range 60\u2013100. Skipping marks your profile unverified.</span>
+        <span className="rs-form-helper">Usual range 60-100. Leave empty if you don&apos;t know — you stay eligible and can continue.</span>
       </div>
 
       <div className="rs-form-field">

@@ -39,7 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
     };
   }, [mobileMenuOpen]);
 
-  const accountHref = user ? "/donor" : "/auth";
+  const accountHref = user ? "/account" : "/auth";
   const accountLabel = user ? (user.email ? user.email.split("@")[0] : "Account") : "Sign in";
 
   return (
@@ -70,6 +70,9 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
           <Link href="/requests" className="rs-nav-link">
             My requests
           </Link>
+          <a href="#founders" className="rs-nav-link">
+            Meet the Founders
+          </a>
         </nav>
 
         {/* Right: Actions */}
@@ -144,6 +147,13 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
             >
               My requests
             </Link>
+            <a
+              href="#founders"
+              className="rs-mobile-link"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Meet the Founders
+            </a>
             <Link
               href={accountHref}
               className="rs-mobile-link"

@@ -45,6 +45,29 @@ export async function GET(req: Request) {
   }
 }
 
+export async function PATCH(req: Request) {
+  const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
+  try {
+    assertSupabaseEnv();
+    if (!hasSameOrigin(req)) return NextResponse.json({ error: "Cross-origin request blocked" }, { status: 403 });
+    const user = await getAuthenticatedUser(req);
+    if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    const parsed = z.object({ notificationConsent: z.boolean().optional(), paused: z.boolean().optional() }).safeParse(await req.json());
+    if (!parsed.success) return NextResponse.json({ error: "Invalid settings", details: parsed.error.flatten() }, { status: 400 });
+    const { updateDonor, listDonorsByUser } = await import("@/lib/supabase/repository");
+    const donors = await listDonorsByUser(user.id);
+    const donor = donors[0];
+    if (!donor) return NextResponse.json({ error: "No donor profile" }, { status: 404 });
+    if (parsed.data.notificationConsent !== undefined) await updateDonor(donor.id, { notificationConsent: parsed.data.notificationConsent });
+    if (parsed.data.paused !== undefined) await updateDonor(donor.id, { availability: parsed.data.paused ? "PAUSED" : "AVAILABLE" });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    console.error(JSON.stringify({ event: "donors_patch_failed", requestId, error: error instanceof Error ? error.message : "unknown" }));
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
   try {
