@@ -3353,13 +3353,11 @@ button, input, select, textarea {
 .rs-skip-link { position: fixed; top: -48px; left: 16px; z-index: 200; background: var(--rs-ink); color: #FFFFFF; font-size: 14px; font-weight: 600; padding: 10px 16px; border-radius: 8px; text-decoration: none; transition: top 150ms ease; }
 .rs-skip-link:focus-visible { top: 12px; outline: 2px solid var(--rs-telegram); outline-offset: 2px; }
 
-/* Persistent Telegram gooey button (Skiper46-style micro-interaction) */
+/* Persistent Telegram button (disturb-free entry to the bot, every page) */
 .rs-tg-float { position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 90; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
-.rs-tg-goo-defs { position: absolute; }
-.rs-tg-fab { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%; background: var(--rs-ink); color: #FFFFFF; box-shadow: 0 8px 24px rgba(23, 23, 23, 0.28); }
-.rs-tg-fab:hover { color: #FFFFFF; }
+.rs-tg-fab { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%; background: #229ED9; color: #FFFFFF; box-shadow: 0 8px 24px rgba(34, 158, 217, 0.45); }
+.rs-tg-fab:hover { color: #FFFFFF; background: #1D8BC0; }
 .rs-tg-fab:focus-visible { outline: 2px solid var(--rs-telegram); outline-offset: 3px; }
-.rs-tg-fab-goo { position: absolute; inset: -6px; border-radius: 50%; background: var(--rs-ink); opacity: 0.35; filter: url(#rs-tg-goo); pointer-events: none; }
 .rs-tg-panel { width: 240px; background: var(--rs-surface); border: 1px solid var(--rs-border); border-radius: 14px; padding: 16px; box-shadow: 0 16px 40px rgba(23, 23, 23, 0.16); }
 .rs-tg-panel-title { margin: 0; font-size: 14px; font-weight: 700; color: var(--rs-ink); }
 .rs-tg-panel-handle { margin: 2px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--rs-secondary); }
@@ -3594,3 +3592,22 @@ button.ax-search { border: 0; background: transparent; cursor: pointer; padding:
 .rs-segbar > span { display: block; height: 100%; }
 .rs-ring { display: block; margin: 6px auto 2px; }
 .rs-avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+
+/* ============ Admin overflow guards (mobile) ============ */
+.ax-app svg { max-width: 100%; }
+.ax-table td { min-width: 0; overflow-wrap: anywhere; }
+.ax-table td strong { min-width: 0; overflow-wrap: anywhere; }
+.ax-row strong { overflow-wrap: anywhere; }
+.ax-row small { overflow-wrap: anywhere; }
+.timeline-item > span { min-width: 0; overflow-wrap: anywhere; }
+.timeline-item small { flex-shrink: 0; }
+.ax-facts dd { overflow-wrap: anywhere; }
+.ax-palette-item > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-palette-item small { flex-shrink: 0; }
+.ax-top > * { min-width: 0; }
+button.ax-search { flex: 0 0 auto; }
+.donut-legend { min-width: 120px; }
+.ax-cardhead > div, .ax-pagehead > div { min-width: 0; }
+@media (max-width: 720px) {
+  .rs-auth-input { font-size: 16px; }
+}
