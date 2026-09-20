@@ -44,7 +44,7 @@ function requestFromRow(row: Record<string, unknown>): BloodRequest {
   };
 }
 
-function notificationFromRow(row: Record<string, unknown>, actionToken: string): Notification {
+function notificationFromRow(row: Record<string, unknown>, actionToken: string): Notification & { expiresAt: string | null } {
   return {
     id: String(row.id),
     requestId: String(row.request_id),
@@ -55,6 +55,8 @@ function notificationFromRow(row: Record<string, unknown>, actionToken: string):
     respondedAt: (row.responded_at as string | null) ?? null,
     actionTokenHash: String(row.action_token_hash),
     actionToken,
+    // ponytail: expiry rides along; NULL (pre-0008 rows) = unknown, caller treats as non-expired
+    expiresAt: (row.expires_at as string | null) ?? null,
   };
 }
 
@@ -134,19 +136,18 @@ export async function saveTelegramConversation(chatId: string, state: string, da
   if (error) throw error;
 }
 
+// ponytail: conditional *_confirmation/*_review -> *_creating transition; 0 rows = already claimed (double-tap), caller ignores
+export async function claimTelegramConversation(chatId: string, fromState: string, toState: string, data: TelegramConversation["data"] = {}): Promise<boolean> {
+  const { data: row, error } = await db().from("telegram_conversations").update({
+    state: toState, data, updated_at: new Date().toISOString(),
+  }).eq("chat_id", chatId).eq("state", fromState).select("chat_id").maybeSingle();
+  if (error) throw error;
+  return Boolean(row);
+}
+
 export async function clearTelegramConversation(chatId: string): Promise<void> {
   const { error } = await db().from("telegram_conversations").delete().eq("chat_id", chatId);
   if (error) throw error;
-}
-
-// ponytail: atomic compare-and-swap on conversation state — a retried/double-tapped
-// confirm only wins once; losers see 0 rows and skip the create
-export async function claimTelegramConversation(chatId: string, fromState: string, toState: string, data: TelegramConversation["data"] = {}): Promise<boolean> {
-  const { data: rows, error } = await db().from("telegram_conversations").update({
-    state: toState, data, updated_at: new Date().toISOString(),
-  }).eq("chat_id", chatId).eq("state", fromState).select("chat_id");
-  if (error) throw error;
-  return (rows?.length ?? 0) > 0;
 }
 
 export async function getOrCreateTelegramRequester(chatId: string): Promise<string> {
@@ -214,14 +215,19 @@ export async function listRequestsByRequesterId(requesterId: string): Promise<Bl
 
 export async function cancelRequestForRequester(requestId: string, requesterId: string): Promise<boolean> {
   const { data, error } = await db().from("blood_requests")
-    .update({ status: "CANCELLED" })
+    .update({ status: "CANCELLED", matched_donor_id: null })
     .eq("id", requestId)
     .eq("requester_id", requesterId)
     .in("status", ["OPEN", "MATCHED"])
     .select("id")
     .maybeSingle();
   if (error) throw error;
-  return Boolean(data);
+  if (!data) return false;
+  // ponytail: release by request id so a newer donor lock is never clobbered
+  const released = await db().from("donors").update({ active_match_request_id: null }).eq("active_match_request_id", requestId);
+  if (released.error) throw released.error;
+  await expirePendingNotifications(requestId);
+  return true;
 }
 
 export async function getRequest(id: string): Promise<BloodRequest | null> {
@@ -253,12 +259,17 @@ export async function listNotifications(): Promise<Notification[]> {
 }
 
 export async function createNotification(input: Omit<Notification, "id" | "actionTokenHash"> & { actionToken: string }): Promise<Notification> {
+  // ponytail: unique(request_id, donor_id) blocks FAILED/EXPIRED retry — clear only terminal rows; PENDING/ACCEPTED/DECLINED still block
+  const cleared = await db().from("notifications").delete().eq("request_id", input.requestId).eq("donor_id", input.donorId).in("response", ["FAILED", "EXPIRED"]);
+  if (cleared.error) throw cleared.error;
   const { data, error } = await db().from("notifications").insert({
     request_id: input.requestId,
     donor_id: input.donorId,
     wave_number: input.waveNumber,
     response: input.response,
     sent_at: input.sentAt,
+    // ponytail: 72h token TTL, matches 0008 default so app + DB agree
+    expires_at: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
     action_token_hash: hashToken(input.actionToken),
   }).select("*").single();
   if (error) throw error;
@@ -288,25 +299,58 @@ export async function claimNotification(id: string, response: Exclude<Notificati
   return Boolean(data);
 }
 
-export async function expirePendingNotifications(requestId: string, exceptId: string): Promise<void> {
-  const { error } = await db().from("notifications").update({ response: "EXPIRED" }).eq("request_id", requestId).eq("response", "PENDING").neq("id", exceptId);
+export async function expirePendingNotifications(requestId: string, exceptId?: string): Promise<void> {
+  let query = db().from("notifications").update({ response: "EXPIRED" }).eq("request_id", requestId).eq("response", "PENDING");
+  if (exceptId) query = query.neq("id", exceptId);
+  const { error } = await query;
+  if (error) throw error;
+}
+
+// ponytail: atomic request claim — only one accept wins; loser sees no row
+export async function claimRequest(requestId: string, donorId: string): Promise<boolean> {
+  const { data, error } = await db().from("blood_requests").update({
+    status: "MATCHED",
+    matched_donor_id: donorId,
+  }).eq("id", requestId).eq("status", "OPEN").select("id").maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
+// ponytail: conditional release — never reopens a request cancelled after our claim
+export async function releaseRequestClaim(requestId: string, donorId: string): Promise<void> {
+  const { error } = await db().from("blood_requests").update({
+    status: "OPEN",
+    matched_donor_id: null,
+  }).eq("id", requestId).eq("status", "MATCHED").eq("matched_donor_id", donorId);
   if (error) throw error;
 }
 
 export async function updateRequest(id: string, patch: Partial<Pick<BloodRequest, "status" | "matchedDonorId">>): Promise<void> {
-  const { error } = await db().from("blood_requests").update({
-    ...(patch.status ? { status: patch.status } : {}),
-    ...(patch.matchedDonorId ? { matched_donor_id: patch.matchedDonorId } : {}),
-  }).eq("id", id);
+  // ponytail: undefined = absent, explicit null clears the lock
+  const values: Record<string, string | null> = {};
+  if (patch.status !== undefined) values.status = patch.status;
+  if (patch.matchedDonorId !== undefined) values.matched_donor_id = patch.matchedDonorId;
+  if (Object.keys(values).length === 0) return;
+  const { error } = await db().from("blood_requests").update(values).eq("id", id);
   if (error) throw error;
 }
 
 export async function updateDonor(id: string, patch: Partial<Pick<Donor, "activeMatchRequestId" | "lastNotifiedAt">>): Promise<void> {
-  const { error } = await db().from("donors").update({
-    ...(patch.activeMatchRequestId ? { active_match_request_id: patch.activeMatchRequestId } : {}),
-    ...(patch.lastNotifiedAt ? { last_notified_at: patch.lastNotifiedAt } : {}),
-  }).eq("id", id);
+  // ponytail: undefined = absent, explicit null clears the lock
+  const values: Record<string, string | null> = {};
+  if (patch.activeMatchRequestId !== undefined) values.active_match_request_id = patch.activeMatchRequestId;
+  if (patch.lastNotifiedAt !== undefined) values.last_notified_at = patch.lastNotifiedAt;
+  if (Object.keys(values).length === 0) return;
+  const { error } = await db().from("donors").update(values).eq("id", id);
   if (error) throw error;
+}
+
+// ponytail: conditional donor claim — same donor matching 2 requests concurrently; loser sees no row
+export async function claimDonor(donorId: string, requestId: string): Promise<boolean> {
+  const { data, error } = await db().from("donors").update({ active_match_request_id: requestId })
+    .eq("id", donorId).is("active_match_request_id", null).select("id").maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 }
 
 export async function createMatch(requestId: string, donorId: string): Promise<void> {

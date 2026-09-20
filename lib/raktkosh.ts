@@ -9,10 +9,17 @@ export interface RaktkoshAvailability {
   lastUpdated: string;
 }
 
+export interface RaktkoshResult {
+  rows: RaktkoshAvailability[];
+  degraded: boolean;
+  reason?: string;
+}
+
 type CacheEntry = { expiresAt: number; rows: RaktkoshAvailability[] };
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 30_000;
 const FETCH_TIMEOUT_MS = 5_000;
+const RETRIES = 1; // ponytail: 2 attempts total, 429/5xx only — no new queue/breaker lib
 const OFFICIAL_HOST = "eraktkosh.mohfw.gov.in";
 
 function configuredUrl(): URL | null {
@@ -53,30 +60,48 @@ export function parseRaktkoshResponse(value: unknown, bloodGroup: BloodGroup): R
   return value.flatMap((row) => row && typeof row === "object" ? [available(row as Record<string, unknown>, bloodGroup)].filter(Boolean) as RaktkoshAvailability[] : []);
 }
 
-export async function findRaktkoshAvailability(bloodGroup: BloodGroup): Promise<RaktkoshAvailability[]> {
-  if (!bloodGroups.includes(bloodGroup)) return [];
+export async function findRaktkoshAvailability(bloodGroup: BloodGroup): Promise<RaktkoshResult> {
+  if (!bloodGroups.includes(bloodGroup)) return { rows: [], degraded: true, reason: "invalid-blood-group" };
   const base = configuredUrl();
-  if (!base) return [];
+  if (!base) return { rows: [], degraded: true, reason: "not-configured" };
   const stateCode = process.env.RAKTKOSH_STATE_CODE!;
   const districtCode = process.env.RAKTKOSH_DISTRICT_CODE!;
   const key = `${stateCode}:${districtCode}:${bloodGroup}`;
   const hit = cache.get(key);
-  if (hit && hit.expiresAt > Date.now()) return hit.rows;
+  if (hit && hit.expiresAt > Date.now()) return { rows: hit.rows, degraded: false };
   const url = new URL(base);
   url.search = new URLSearchParams({ stateCode, districtCode, bloodGroup }).toString();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { signal: controller.signal, headers: { accept: "application/json" }, cache: "no-store" });
-    if (!response.ok) return [];
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("json")) return [];
-    const rows = parseRaktkoshResponse(await response.json(), bloodGroup);
-    cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, rows });
-    return rows;
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
+  let reason = "unknown";
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      // ponytail: stdlib timeout, no AbortController boilerplate
+      const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { accept: "application/json" }, cache: "no-store" });
+      if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+        reason = `upstream-${response.status}`;
+        if (attempt < RETRIES) continue;
+        console.warn(JSON.stringify({ event: "raktkosh_degraded", reason, attempt }));
+        return { rows: [], degraded: true, reason };
+      }
+      if (!response.ok) {
+        reason = `upstream-${response.status}`;
+        console.warn(JSON.stringify({ event: "raktkosh_degraded", reason }));
+        return { rows: [], degraded: true, reason };
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("json")) {
+        reason = "non-json-response";
+        console.warn(JSON.stringify({ event: "raktkosh_degraded", reason }));
+        return { rows: [], degraded: true, reason };
+      }
+      const rows = parseRaktkoshResponse(await response.json(), bloodGroup);
+      cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, rows });
+      return { rows, degraded: false };
+    } catch (error) {
+      reason = error instanceof Error ? error.name === "TimeoutError" ? "timeout" : error.message : "fetch-failed";
+      console.warn(JSON.stringify({ event: "raktkosh_degraded", reason }));
+      return { rows: [], degraded: true, reason };
+    }
   }
+  console.warn(JSON.stringify({ event: "raktkosh_degraded", reason }));
+  return { rows: [], degraded: true, reason };
 }
