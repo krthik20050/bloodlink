@@ -111,12 +111,12 @@ export function RequestsExplorer({ rows, notifications, matches, initialQuery, i
             {paged.map(r => (
               <tr key={r.id} onClick={() => setSelectedId(r.id)} className={r.id === selectedId ? "ax-row--sel" : ""} tabIndex={0}
                 onKeyDown={e => { if (e.key === "Enter") setSelectedId(r.id); }}>
-                <td><span className="ax-drop ax-drop--sm">{r.blood_group}</span></td>
-                <td><strong>{r.hospital}</strong></td>
-                <td>× {r.units_required}</td>
-                <td>{label(r.urgency)}</td>
-                <td><span className={`status-tag ${label(r.status)}`}>{label(r.status)}</span></td>
-                <td>{timeAgo(r.created_at)}</td>
+                <td className="no-label"><span className="ax-drop ax-drop--sm">{r.blood_group}</span></td>
+                <td data-label=""><strong>{r.hospital}</strong></td>
+                <td data-label="Units">× {r.units_required}</td>
+                <td data-label="Urgency">{label(r.urgency)}</td>
+                <td data-label="Status"><span className={`status-tag ${label(r.status)}`}>{label(r.status)}</span></td>
+                <td data-label="Opened">{timeAgo(r.created_at)}</td>
               </tr>
             ))}
           </tbody>
@@ -196,12 +196,12 @@ export function DonorsExplorer({ rows, notifications, initialQuery, initialSelec
             {paged.map(d => (
               <tr key={d.id} onClick={() => setSelectedId(d.id)} className={d.id === selectedId ? "ax-row--sel" : ""} tabIndex={0}
                 onKeyDown={e => { if (e.key === "Enter") setSelectedId(d.id); }}>
-                <td><strong>{d.name}</strong></td>
-                <td><span className="ax-drop ax-drop--sm">{d.blood_group}</span></td>
-                <td><span className={`status-tag ${label(d.availability_status)}`}>{label(d.availability_status)}</span></td>
-                <td>{d.notification_consent ? "On" : "Off"}</td>
-                <td>{d.telegram_connected ? "Yes" : "No"}</td>
-                <td>{timeAgo(d.created_at)}</td>
+                <td data-label=""><strong>{d.name}</strong></td>
+                <td className="no-label"><span className="ax-drop ax-drop--sm">{d.blood_group}</span></td>
+                <td data-label="Status"><span className={`status-tag ${label(d.availability_status)}`}>{label(d.availability_status)}</span></td>
+                <td data-label="Alerts">{d.notification_consent ? "On" : "Off"}</td>
+                <td data-label="Linked">{d.telegram_connected ? "Yes" : "No"}</td>
+                <td data-label="Joined">{timeAgo(d.created_at)}</td>
               </tr>
             ))}
           </tbody>

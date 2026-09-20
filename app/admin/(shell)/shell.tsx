@@ -34,26 +34,36 @@ export default function Shell({ openCount, donorCount, attentionCount, children 
 
   useEffect(() => {
     // ponytail: 30s polling, not Supabase Realtime — demo-admin has no Supabase user for RLS realtime.
+    // Pauses in background tabs, backs off on failure, never interrupts an open dialog.
     let stop = false;
+    let failures = 0;
+    let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
-      try {
-        const res = await fetch("/api/admin/metrics", { cache: "no-store" });
-        if (!res.ok) throw new Error("metrics");
-        const json = await res.json();
-        const fp = JSON.stringify([json.requests, json.donors, json.notifications, json.matches]);
-        if (fingerprint.current && fingerprint.current !== fp && !stop) {
-          toast("New activity detected — view refreshed.");
-          router.refresh();
+      if (!stop) {
+        if (!document.hidden) {
+          try {
+            const res = await fetch("/api/admin/metrics", { cache: "no-store" });
+            if (!res.ok) throw new Error("metrics");
+            const json = await res.json();
+            const fp = JSON.stringify([json.requests, json.donors, json.notifications, json.matches]);
+            const dialogOpen = Boolean(document.querySelector(".ax-drawer-overlay, .ax-palette-overlay"));
+            if (fingerprint.current && fingerprint.current !== fp && !dialogOpen) {
+              toast("New activity detected — view refreshed.");
+              router.refresh();
+            }
+            fingerprint.current = fp;
+            failures = 0;
+            setLive(true);
+          } catch {
+            failures += 1;
+            setLive(false);
+          }
         }
-        fingerprint.current = fp;
-        if (!stop) setLive(true);
-      } catch {
-        if (!stop) setLive(false);
+        timer = setTimeout(tick, Math.min(30000 * 2 ** failures, 300000));
       }
     };
     tick();
-    const id = setInterval(tick, 30000);
-    return () => { stop = true; clearInterval(id); };
+    return () => { stop = true; clearTimeout(timer); };
   }, [router]);
 
   function toggleCollapse() {

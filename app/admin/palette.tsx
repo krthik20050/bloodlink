@@ -21,6 +21,9 @@ const NAV: Entry[] = [
 
 const NAV_ICON = { Overview: <LayoutDashboard size={16} />, Requests: <ClipboardList size={16} />, Donors: <Users size={16} />, Activity: <Activity size={16} />, "Exit admin": <LogOut size={16} /> } as const;
 
+type Records = { requests: RequestRow[]; donors: DonorRow[] };
+let recordsCache: Records | null = null;
+
 export default function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -33,13 +36,19 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
     setQuery("");
     setActive(0);
     inputRef.current?.focus();
-    let stop = false;
+    if (recordsCache) {
+      setRecords(recordsCache);
+      return;
+    }
+    const controller = new AbortController();
     Promise.all([
-      fetch("/api/admin/requests", { cache: "no-store" }).then(r => (r.ok ? r.json() : [])),
-      fetch("/api/admin/donors", { cache: "no-store" }).then(r => (r.ok ? r.json() : [])),
-    ]).then(([requests, donors]) => { if (!stop) setRecords({ requests, donors }); })
-      .catch(() => { if (!stop) setRecords({ requests: [], donors: [] }); });
-    return () => { stop = true; };
+      fetch("/api/admin/requests", { cache: "no-store", signal: controller.signal }).then(r => (r.ok ? r.json() : [])),
+      fetch("/api/admin/donors", { cache: "no-store", signal: controller.signal }).then(r => (r.ok ? r.json() : [])),
+    ]).then(([requests, donors]) => {
+      recordsCache = { requests, donors };
+      setRecords(recordsCache);
+    }).catch(() => { /* aborted or offline; palette still offers navigation */ });
+    return () => controller.abort();
   }, [open ]);
 
   const entries = useMemo<Entry[]>(() => {
