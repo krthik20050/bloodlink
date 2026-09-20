@@ -1,13 +1,14 @@
 // ponytail: pure view-model builders shared by the admin views; no hooks here.
 export type RequestRow = { id: string; blood_group: string; units_required: number; hospital: string; urgency: string; status: string; created_at: string };
 export type DonorRow = { id: string; name: string; blood_group: string; availability_status: string; notification_consent: boolean; telegram_connected: boolean; created_at: string };
-export type NotificationRow = { id: string; wave_number: number; response: string; sent_at: string; responded_at: string | null };
+export type NotificationRow = { id: string; request_id: string; donor_id: string; wave_number: number; response: string; sent_at: string; responded_at: string | null };
 export type MatchRow = { id: string; request_id: string; created_at: string };
 
 export const GROUPS = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
 export const STALE_HOURS = 48;
 
 export const label = (value: string) => value.toLowerCase().replace("_", " ");
+export const timestamp = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 
 export function timeAgo(value: string) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));

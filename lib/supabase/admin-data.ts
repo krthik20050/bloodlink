@@ -60,7 +60,7 @@ export async function listAdminMatches() {
 export async function listAdminNotifications() {
   const { data, error } = await getSupabaseAdmin()
     .from("notifications")
-    .select("id, wave_number, response, sent_at, responded_at")
+    .select("id, request_id, donor_id, wave_number, response, sent_at, responded_at")
     .order("sent_at", { ascending: false })
     .limit(100);
   if (error) throw error;

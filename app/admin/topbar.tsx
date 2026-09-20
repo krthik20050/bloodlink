@@ -1,40 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Bell, RefreshCw, Search } from "lucide-react";
+import { Bell, Menu, RefreshCw, Search } from "lucide-react";
+import { toast } from "./toast";
 
-export default function AdminTopbar({ attentionCount }: { attentionCount: number | null }) {
+export default function AdminTopbar({ attentionCount, live, onMenu, onPalette }: {
+  attentionCount: number | null; live: boolean; onMenu: () => void; onPalette: () => void;
+}) {
   const router = useRouter();
-  const pathname = usePathname();
-  const [query, setQuery] = useState("");
   const [spinning, setSpinning] = useState(false);
-
-  function search(e: React.FormEvent) {
-    e.preventDefault();
-    const base = pathname.startsWith("/admin/donors") ? "/admin/donors" : "/admin/requests";
-    router.push(query ? `${base}?q=${encodeURIComponent(query)}` : base);
-  }
 
   function refresh() {
     setSpinning(true);
     router.refresh();
+    toast("Dashboard refreshed.");
     setTimeout(() => setSpinning(false), 800);
   }
 
   return (
     <header className="ax-top">
-      <form className="ax-search" onSubmit={search} role="search">
+      <button type="button" className="ax-iconbtn ax-menu" onClick={onMenu} aria-label="Open menu"><Menu size={17} /></button>
+      <button type="button" className="ax-search ax-search--btn" onClick={onPalette} aria-label="Open command palette">
         <Search size={16} aria-hidden="true" />
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search requests or donors…" aria-label="Search admin records" />
-        <kbd>↵</kbd>
-      </form>
+        <span>Search views and records…</span>
+        <kbd>⌘K</kbd>
+      </button>
       <div className="ax-topright">
+        <span className={`ax-live${live ? " ax-live--on" : ""}`} title={live ? "Auto-refresh connected" : "Auto-refresh unavailable"}>
+          <i />{live ? "Live" : "Stale"}
+        </span>
         <button className="ax-iconbtn" type="button" onClick={refresh} aria-label="Refresh data" title="Refresh data">
           <RefreshCw size={17} className={spinning ? "spin" : ""} />
         </button>
-        <Link className="ax-iconbtn" href="/admin/requests" aria-label={`${attentionCount ?? 0} items need attention`} title="Needs attention">
+        <Link className="ax-iconbtn" href="/admin/requests" aria-label={`${attentionCount ?? 0} open requests`} title="Open requests">
           <Bell size={17} />
           {(attentionCount ?? 0) > 0 && <b className="ax-dot">{attentionCount}</b>}
         </Link>
