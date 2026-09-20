@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { DonorProgress, StepItem } from "./DonorProgress";
 import { BloodGroupSelector } from "./BloodGroupSelector";
+import { FitnessStep, FitnessValue, emptyFitness, evaluateFitness } from "./FitnessStep";
 import { LocationStep } from "./LocationStep";
 import { ConsentStep } from "./ConsentStep";
 import { DonorSuccess } from "./DonorSuccess";
@@ -16,8 +17,9 @@ interface DonorOnboardingProps {
 const STEPS: StepItem[] = [
   { id: 1, label: "About you" },
   { id: 2, label: "Blood group" },
-  { id: 3, label: "Location" },
-  { id: 4, label: "Availability" },
+  { id: 3, label: "Fitness" },
+  { id: 4, label: "Location" },
+  { id: 5, label: "Consent" },
 ];
 
 export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
@@ -28,6 +30,7 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
   const [name, setName] = useState("");
   const [contact, setContact] = useState(initialUser?.email ?? "");
   const [bloodGroup, setBloodGroup] = useState<BloodGroup>("O+");
+  const [fitness, setFitness] = useState<FitnessValue>(emptyFitness);
   const [lastDonationDate, setLastDonationDate] = useState("");
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [consent, setConsent] = useState(false);
@@ -67,8 +70,19 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
     return Object.keys(nextErrors).length === 0;
   };
 
-  // Step 2 Validation (Location)
+  // Step 2 Validation (Fitness)
   const validateStep2 = (): boolean => {
+    const nextErrors: Record<string, string> = {};
+    const result = evaluateFitness(fitness);
+    if (result.blocked) {
+      nextErrors.fitness = result.blocked + (result.deferUntil ? ` Eligible again after ${result.deferUntil}.` : "");
+    }
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  // Step 3 Validation (Location)
+  const validateStep3 = (): boolean => {
     const nextErrors: Record<string, string> = {};
     if (!location) {
       nextErrors.location = "Location permission needed to coordinate nearby requests.";
@@ -77,8 +91,8 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
     return Object.keys(nextErrors).length === 0;
   };
 
-  // Step 3 Validation (Consent)
-  const validateStep3 = (): boolean => {
+  // Step 4 Validation (Consent)
+  const validateStep4 = (): boolean => {
     const nextErrors: Record<string, string> = {};
     if (!consent) {
       nextErrors.consent = "Please check the box to confirm you wish to receive notifications.";
@@ -95,6 +109,7 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
     else if (currentStep === 1) isValid = validateStep1();
     else if (currentStep === 2) isValid = validateStep2();
     else if (currentStep === 3) isValid = validateStep3();
+    else if (currentStep === 4) isValid = validateStep4();
 
     if (isValid && currentStep < STEPS.length - 1) {
       setCurrentStep((curr) => curr + 1);
@@ -115,13 +130,14 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
     e.preventDefault();
     setServerError("");
 
-    if (!validateStep0() || !validateStep1() || !validateStep2() || !validateStep3()) {
+    if (!validateStep0() || !validateStep1() || !validateStep2() || !validateStep3() || !validateStep4()) {
       return;
     }
 
     setSubmitting(true);
 
     try {
+      const result = evaluateFitness(fitness);
       const payload = {
         name: name.trim(),
         contact: contact.trim().toLowerCase(),
@@ -130,6 +146,21 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
         longitude: location!.longitude,
         lastDonationDate: lastDonationDate || null,
         notificationConsent: consent,
+        sex: fitness.sex,
+        ageYears: fitness.ageYears,
+        weightKg: fitness.weightKg,
+        hemoglobinGdl: fitness.hemoglobinGdl,
+        systolicBpMmhg: fitness.systolicBpMmhg,
+        diastolicBpMmhg: fitness.diastolicBpMmhg,
+        pulseBpm: fitness.pulseBpm,
+        isPregnantNow: fitness.isPregnantNow,
+        lastPregnancyEndDate: fitness.lastPregnancyEndDate,
+        isBreastfeedingNow: fitness.isBreastfeedingNow,
+        illnessAntibiotics14d: fitness.illnessAntibiotics14d,
+        tattooPiercing12m: fitness.tattooPiercing12m,
+        alcohol24h: fitness.alcohol24h,
+        fitnessDeferUntil: result.deferUntil,
+        fitnessUnverified: result.unverified,
       };
 
       const res = await fetch("/api/donors", {
@@ -250,6 +281,14 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
           )}
 
           {currentStep === 2 && (
+            <FitnessStep
+              value={fitness}
+              onChange={setFitness}
+              error={errors.fitness}
+            />
+          )}
+
+          {currentStep === 3 && (
             <LocationStep
               location={location}
               onLocationChange={setLocation}
@@ -257,7 +296,7 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
             />
           )}
 
-          {currentStep === 3 && (
+          {currentStep === 4 && (
             <ConsentStep
               consent={consent}
               onConsentChange={setConsent}

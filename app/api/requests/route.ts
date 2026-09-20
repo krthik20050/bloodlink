@@ -3,7 +3,7 @@ import { z } from "zod";
 import { bloodGroups, isValidRequestContact } from "@/lib/domain";
 import { getAuthenticatedUser, hasSameOrigin } from "@/lib/supabase/auth";
 import { assertSupabaseEnv } from "@/lib/supabase/server";
-import { createRequest, listRequestsByRequester } from "@/lib/supabase/repository";
+import { createRequest, getDonorContactForRequester, listRequestsByRequester } from "@/lib/supabase/repository";
 import { findRaktkoshAvailability } from "@/lib/raktkosh";
 
 const schema = z.object({
@@ -22,7 +22,18 @@ export async function GET(req: Request) {
     assertSupabaseEnv();
     const user = await getAuthenticatedUser(req);
     if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    return NextResponse.json(await listRequestsByRequester(user.id));
+    const requests = await listRequestsByRequester(user.id);
+    // ponytail: best-effort per-request enrichment; a contact lookup never fails the list
+    const enriched = await Promise.all(requests.map(async (r) => {
+      if (r.status !== "MATCHED" || !r.matchedDonorId) return r;
+      try {
+        const matchedDonor = await getDonorContactForRequester(r.matchedDonorId, user.id);
+        return { ...r, matchedDonor };
+      } catch {
+        return { ...r, matchedDonor: null };
+      }
+    }));
+    return NextResponse.json(enriched);
   } catch (error) {
     if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     console.error(JSON.stringify({ event: "requests_get_failed", requestId: rid, error: error instanceof Error ? error.message : "unknown" }));

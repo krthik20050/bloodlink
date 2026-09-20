@@ -13,6 +13,21 @@ const donorSchema = z.object({
   lastDonationDate: z.string().date().nullable(),
   notificationConsent: z.boolean(),
   contact: z.string().email(),
+  sex: z.string().nullable().optional(),
+  ageYears: z.number().int().nullable().optional(),
+  weightKg: z.number().nullable().optional(),
+  hemoglobinGdl: z.number().nullable().optional(),
+  systolicBpMmhg: z.number().int().nullable().optional(),
+  diastolicBpMmhg: z.number().int().nullable().optional(),
+  pulseBpm: z.number().int().nullable().optional(),
+  isPregnantNow: z.boolean().nullable().optional(),
+  lastPregnancyEndDate: z.string().date().nullable().optional(),
+  isBreastfeedingNow: z.boolean().nullable().optional(),
+  illnessAntibiotics14d: z.boolean().nullable().optional(),
+  tattooPiercing12m: z.boolean().nullable().optional(),
+  alcohol24h: z.boolean().nullable().optional(),
+  fitnessDeferUntil: z.string().date().nullable().optional(),
+  fitnessUnverified: z.boolean().optional(),
 });
 
 export async function GET(req: Request) {

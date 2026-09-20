@@ -25,6 +25,21 @@ function donorFromRow(row: Record<string, unknown>): Donor {
     telegramLinkTokenExpiresAt: (row.telegram_link_token_expires_at as string | null) ?? null,
     contact: String(row.contact),
     activeMatchRequestId: (row.active_match_request_id as string | null) ?? null,
+    sex: (row.sex as string | null) ?? null,
+    ageYears: (row.age_years as number | null) ?? null,
+    weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
+    hemoglobinGdl: row.hemoglobin_gdl == null ? null : Number(row.hemoglobin_gdl),
+    systolicBpMmhg: (row.systolic_bp_mmhg as number | null) ?? null,
+    diastolicBpMmhg: (row.diastolic_bp_mmhg as number | null) ?? null,
+    pulseBpm: (row.pulse_bpm as number | null) ?? null,
+    isPregnantNow: (row.is_pregnant_now as boolean | null) ?? null,
+    lastPregnancyEndDate: (row.last_pregnancy_end_date as string | null) ?? null,
+    isBreastfeedingNow: (row.is_breastfeeding_now as boolean | null) ?? null,
+    illnessAntibiotics14d: (row.illness_antibiotics_14d as boolean | null) ?? null,
+    tattooPiercing12m: (row.tattoo_piercing_12m as boolean | null) ?? null,
+    alcohol24h: (row.alcohol_24h as boolean | null) ?? null,
+    fitnessDeferUntil: (row.fitness_defer_until as string | null) ?? null,
+    fitnessUnverified: Boolean(row.fitness_unverified ?? false),
   };
 }
 
@@ -78,6 +93,21 @@ export async function createDonor(input: Omit<Donor, "id" | "activeMatchRequestI
     notification_consent: input.notificationConsent,
     telegram_chat_id: input.telegramChatId ?? null,
     contact: input.contact,
+    sex: input.sex ?? null,
+    age_years: input.ageYears ?? null,
+    weight_kg: input.weightKg ?? null,
+    hemoglobin_gdl: input.hemoglobinGdl ?? null,
+    systolic_bp_mmhg: input.systolicBpMmhg ?? null,
+    diastolic_bp_mmhg: input.diastolicBpMmhg ?? null,
+    pulse_bpm: input.pulseBpm ?? null,
+    is_pregnant_now: input.isPregnantNow ?? null,
+    last_pregnancy_end_date: input.lastPregnancyEndDate ?? null,
+    is_breastfeeding_now: input.isBreastfeedingNow ?? null,
+    illness_antibiotics_14d: input.illnessAntibiotics14d ?? null,
+    tattoo_piercing_12m: input.tattooPiercing12m ?? null,
+    alcohol_24h: input.alcohol24h ?? null,
+    fitness_defer_until: input.fitnessDeferUntil ?? null,
+    fitness_unverified: input.fitnessUnverified ?? false,
   }).select("*").single();
   if (error) throw error;
   return donorFromRow(data);
@@ -369,4 +399,16 @@ export async function getRequestAndDonor(requestId: string, donorId: string): Pr
   ]);
   if (donor.error) throw donor.error;
   return { request, donor: donor.data ? donorFromRow(donor.data) : null };
+}
+
+// ponytail: requester sees donor contact only via a MATCHED row pairing them; else null
+export async function getDonorContactForRequester(donorId: string, requesterId: string): Promise<{ name: string; contact: string } | null> {
+  const { data: match, error: matchError } = await db().from("blood_requests").select("id")
+    .eq("requester_id", requesterId).eq("matched_donor_id", donorId).eq("status", "MATCHED").maybeSingle();
+  if (matchError) throw matchError;
+  if (!match) return null;
+  const { data: donor, error: donorError } = await db().from("donors").select("name,contact").eq("id", donorId).maybeSingle();
+  if (donorError) throw donorError;
+  if (!donor) return null;
+  return { name: String(donor.name), contact: String(donor.contact) };
 }

@@ -3231,3 +3231,10 @@ button, input, select, textarea {
 .rs-contact-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--rs-secondary); pointer-events: none; }
 .rs-contact-input { padding-left: 42px; }
 .rs-success-contact-note { margin: 8px 0 0; font-size: 0.92rem; color: var(--rs-secondary); }
+
+/* Requester inbox (/requests) — single-column stack */
+.rs-inbox-list { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; max-width: 720px; }
+.rs-inbox-toprow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.rs-inbox-muted { opacity: 0.65; }
+.rs-inbox-donor { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--rs-accent-border); border-radius: 10px; background: #FFF9F9; }
+.rs-inbox-donor-name { font-size: 15px; font-weight: 600; color: var(--rs-ink); margin-bottom: 4px; }

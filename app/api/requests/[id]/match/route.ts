@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedUser, hasSameOrigin } from "@/lib/supabase/auth";
 import { matchDonors } from "@/lib/matching";
 import { queueNotifications } from "@/lib/notifications";
-import { getRequest, listDonors, listNotifications } from "@/lib/supabase/repository";
+import { getRequest, listDonors, listNotifications, updateRequest, expirePendingNotifications } from "@/lib/supabase/repository";
+import { isRequestStale } from "@/lib/request-expiry";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!hasSameOrigin(req)) return NextResponse.json({ error: "Cross-origin request blocked" }, { status: 403 });
@@ -11,6 +12,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const request = await getRequest(id);
   if (!request || request.requesterId !== user.id) return NextResponse.json({ error: "Request not found" }, { status: 404 });
+  if (isRequestStale(request)) {
+    try {
+      await updateRequest(request.id, { status: "EXPIRED" });
+      await expirePendingNotifications(request.id);
+    } catch {}
+    return NextResponse.json({ error: "Request expired — please create a fresh request" }, { status: 410 });
+  }
   if (request.status !== "OPEN") return NextResponse.json({ error: "Request is not open" }, { status: 409 });
   const result = matchDonors(request, await listDonors(), await listNotifications());
   let notifications;

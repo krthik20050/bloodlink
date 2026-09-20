@@ -1,0 +1,15 @@
+alter table donors add column if not exists sex text;
+alter table donors add column if not exists age_years int;
+alter table donors add column if not exists weight_kg numeric;
+alter table donors add column if not exists hemoglobin_gdl numeric;
+alter table donors add column if not exists systolic_bp_mmhg int;
+alter table donors add column if not exists diastolic_bp_mmhg int;
+alter table donors add column if not exists pulse_bpm int;
+alter table donors add column if not exists is_pregnant_now bool;
+alter table donors add column if not exists last_pregnancy_end_date date;
+alter table donors add column if not exists is_breastfeeding_now bool;
+alter table donors add column if not exists illness_antibiotics_14d bool;
+alter table donors add column if not exists tattoo_piercing_12m bool;
+alter table donors add column if not exists alcohol_24h bool;
+alter table donors add column if not exists fitness_defer_until date;
+alter table donors add column if not exists fitness_unverified bool default false;

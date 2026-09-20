@@ -57,6 +57,11 @@ const URGENCY_OPTIONS = [
   },
 ] as const;
 
+const COMPONENT_DEFAULT = "Whole blood / red cells";
+const COMPONENT_GUARD_MESSAGE =
+  "Volunteer matching covers whole blood / red cells only — for plasma or platelets, please contact the hospital blood bank or e-RaktKosh directly.";
+const EXPIRY_NOTE: Record<string, string> = { ROUTINE: "48 hours", URGENT: "12 hours", EMERGENCY: "6 hours" };
+
 export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
   const [bloodGroup, setBloodGroup] = useState<BloodGroup>("O+");
   const [unitsRequired, setUnitsRequired] = useState<number>(1);
@@ -64,6 +69,8 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
   const [contact, setContact] = useState<string>(initialUser?.email ?? "");
   const [contactError, setContactError] = useState<string>("");
   const [urgency, setUrgency] = useState<(typeof URGENCY_OPTIONS)[number]["id"]>("URGENT");
+  const [component, setComponent] = useState<string>(COMPONENT_DEFAULT);
+  const [bankCalled, setBankCalled] = useState<boolean>(false);
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [hospitals, setHospitals] = useState<NearbyHospital[]>([]);
@@ -172,6 +179,14 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
 
   // Run matching algorithm for created request
   async function runMatchFor(requestId: string) {
+    if (component !== COMPONENT_DEFAULT) {
+      setMatchingResult({ selectedCount: 0, excludedCount: 0, message: COMPONENT_GUARD_MESSAGE });
+      return;
+    }
+    if (urgency === "EMERGENCY" && !bankCalled) {
+      setMatchingResult({ selectedCount: 0, excludedCount: 0, message: "Emergency: call the hospital blood bank first, then 108, and tick the confirmation." });
+      return;
+    }
     setMatchingBusy(true);
     try {
       const res = await fetch(`/api/requests/${requestId}/match`, { method: "POST" });
@@ -208,6 +223,14 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
     setServerError("");
     setMatchingResult(null);
 
+    if (component !== COMPONENT_DEFAULT) {
+      setServerError(COMPONENT_GUARD_MESSAGE);
+      return;
+    }
+    if (urgency === "EMERGENCY" && !bankCalled) {
+      setServerError("Emergency: call the hospital blood bank first, then 108, and tick the confirmation before requesting.");
+      return;
+    }
     if (!isValidRequestContact(contact)) {
       setContactError("Enter a phone number or email where the matched donor can reach you.");
       return;
@@ -235,6 +258,7 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
           latitude: location.latitude,
           longitude: location.longitude,
           urgency,
+          component,
         }),
       });
 
@@ -428,6 +452,33 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
               );
             })}
           </div>
+        </div>
+
+        {/* Blood component (red-cell guard: volunteer matching is whole-blood only) */}
+        <div className="rs-form-field">
+          <div className="rs-field-label-row">
+            <label className="rs-form-label" htmlFor="req-component">
+              Blood component
+            </label>
+            <span className="rs-field-annotation">Volunteer matching: red cells</span>
+          </div>
+          <div className="rs-select-wrapper">
+            <select
+              id="req-component"
+              value={component}
+              onChange={(e) => setComponent(e.target.value)}
+              className="rs-select"
+              required
+            >
+              <option value="Whole blood / red cells">Whole blood / red cells</option>
+              <option value="Plasma">Plasma</option>
+              <option value="Platelets">Platelets</option>
+            </select>
+            <ChevronDown size={18} className="rs-select-chevron" aria-hidden="true" />
+          </div>
+          {component !== COMPONENT_DEFAULT && (
+            <span className="rs-field-error" role="alert">{COMPONENT_GUARD_MESSAGE}</span>
+          )}
         </div>
 
         {/* 2. Units Required (48px height, 10px radius, Stepper) */}
@@ -656,6 +707,27 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
           </div>
         </div>
 
+        {/* Emergency bank-first routing: hospital blood bank + 108 before volunteers */}
+        {urgency === "EMERGENCY" && (
+          <div className="rs-error-banner" role="alert">
+            <AlertCircle size={18} />
+            <div>
+              <p><strong>Emergency: call the hospital blood bank first, then 108.</strong></p>
+              <p><a href="tel:108" className="rs-banner-link">Call 108 now <ArrowRight size={14} /></a></p>
+              <label className="rs-checkbox-label" style={{ marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  className="rs-checkbox-input"
+                  checked={bankCalled}
+                  onChange={(e) => setBankCalled(e.target.checked)}
+                  required={urgency === "EMERGENCY"}
+                />
+                <span className="rs-checkbox-text">I have called the hospital blood bank / 108</span>
+              </label>
+            </div>
+          </div>
+        )}
+
         {/* Server Error / Auth Banner */}
         {serverError === "AUTHENTICATION_REQUIRED" ? (
           <div className="rs-auth-required-banner" role="alert">
@@ -695,6 +767,9 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
           </button>
           <p className="rs-submit-guarantee">
             <ShieldCheck size={14} /> Requests trigger private notifications. Phone numbers are never made public.
+          </p>
+          <p className="rs-form-helper" style={{ textAlign: "center", marginTop: 8 }}>
+            Open requests auto-expire after {EXPIRY_NOTE[urgency]} if still unmatched.
           </p>
         </div>
       </form>

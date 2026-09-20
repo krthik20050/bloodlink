@@ -67,6 +67,9 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
           <Link href="/donor" className="rs-nav-link">
             For donors
           </Link>
+          <Link href="/requests" className="rs-nav-link">
+            My requests
+          </Link>
         </nav>
 
         {/* Right: Actions */}
@@ -133,6 +136,13 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
               onClick={() => setMobileMenuOpen(false)}
             >
               For donors
+            </Link>
+            <Link
+              href="/requests"
+              className="rs-mobile-link"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              My requests
             </Link>
             <Link
               href={accountHref}
