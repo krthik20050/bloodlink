@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { bloodGroups, type BloodGroup } from "@/lib/domain";
 import { formatTelegramRequest, isTelegramBloodGroup, parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
+import { evaluateFitness, type FitnessFields } from "@/lib/eligibility";
 import { formatDisplayDate, normalizeCalendarDate, normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { acceptNotification, declineNotification } from "@/lib/match-lifecycle";
 import { matchDonors } from "@/lib/matching";
@@ -29,6 +30,8 @@ import {
   donationCalendarKeyboard,
   donatedKeyboard,
   donorEditMenuKeyboard,
+  fitSexKeyboard,
+  fitYesNoKeyboard,
   donorReviewKeyboard,
   editTelegramCalendar,
   editTelegramMessage,
@@ -382,19 +385,11 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
     case "donor_date_confirm": {
       const picked = value ? normalizeTelegramDonationDate(value) : undefined;
       if (/^none$/i.test(value ?? "")) {
-        await saveTelegramConversation(chatId, "donor_location", { ...conversation.data, lastDonationDate: null });
-        await sendTelegramReplyKeyboard(chatId, "Please share your location using the button below. We use it only to find nearby requests.", {
-          keyboard: [[{ text: "Share my location", request_location: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        });
+        await saveTelegramConversation(chatId, "donor_fit_age", { ...conversation.data, lastDonationDate: null });
+        await sendTelegramMessage(chatId, "🩺 Quick health check — one question at a time, skip any you can't answer.\n\nHow old are you? Send your age in years.");
       } else if (/^yes$/i.test(value ?? "") || /^confirm$/i.test(value ?? "")) {
-        await saveTelegramConversation(chatId, "donor_location", conversation.data);
-        await sendTelegramReplyKeyboard(chatId, "Please share your location using the button below. We use it only to find nearby requests.", {
-          keyboard: [[{ text: "Share my location", request_location: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        });
+        await saveTelegramConversation(chatId, "donor_fit_age", conversation.data);
+        await sendTelegramMessage(chatId, "🩺 Quick health check — one question at a time, skip any you can't answer.\n\nHow old are you? Send your age in years.");
       } else if (typeof picked === "string") {
         await saveTelegramConversation(chatId, "donor_date_confirm", { ...conversation.data, lastDonationDate: picked });
         await sendTelegramMessage(chatId, `You selected: ${formatDisplayDate(picked)}.\n\nIs this correct?`, dateConfirmKeyboard());
@@ -404,6 +399,203 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
       } else {
         const current = conversation.data.lastDonationDate;
         await sendTelegramMessage(chatId, `Currently selected: ${typeof current === "string" ? formatDisplayDate(current) : "none"}.\n\nTap Yes to keep it or Change date.`, dateConfirmKeyboard());
+      }
+      return true;
+    }
+    // ponytail: fitness mirrors the web form order with the same canonical evaluateFitness gate;
+    // yes/no questions exit early on a blocking answer so nobody answers 8 dead questions
+    case "donor_fit_age": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_sex", { ...conversation.data, ageYears: null });
+        await sendTelegramMessage(chatId, "What is your sex?", fitSexKeyboard());
+      } else if (/^\d{1,3}$/.test(raw) && Number(raw) >= 0 && Number(raw) <= 120) {
+        await saveTelegramConversation(chatId, "donor_fit_sex", { ...conversation.data, ageYears: Number(raw) });
+        await sendTelegramMessage(chatId, "What is your sex?", fitSexKeyboard());
+      } else {
+        await sendTelegramMessage(chatId, "Send your age in years (for example 28), or skip.");
+      }
+      return true;
+    }
+    case "donor_fit_sex": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "male" || raw === "other") {
+        await saveTelegramConversation(chatId, "donor_fit_weight", { ...conversation.data, sex: raw });
+        await sendTelegramMessage(chatId, "What is your weight in kilograms? Minimum 45 kg to donate. Send a number, or skip.");
+      } else if (raw === "female") {
+        const age = typeof conversation.data.ageYears === "number" ? conversation.data.ageYears : null;
+        await saveTelegramConversation(chatId, age != null && age >= 15 && age <= 49 ? "donor_fit_preg" : "donor_fit_weight", { ...conversation.data, sex: raw });
+        if (age != null && age >= 15 && age <= 49) await sendTelegramMessage(chatId, "Are you pregnant now?", fitYesNoKeyboard("preg"));
+        else await sendTelegramMessage(chatId, "What is your weight in kilograms? Minimum 45 kg to donate. Send a number, or skip.");
+      } else if (raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_weight", { ...conversation.data, sex: null });
+        await sendTelegramMessage(chatId, "What is your weight in kilograms? Minimum 45 kg to donate. Send a number, or skip.");
+      } else {
+        await sendTelegramMessage(chatId, "Tap Male, Female, Other, or Skip.", fitSexKeyboard());
+      }
+      return true;
+    }
+    case "donor_fit_preg": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "yes") {
+        await blockFitness(chatId, { isPregnantNow: true });
+      } else if (raw === "no") {
+        await saveTelegramConversation(chatId, "donor_fit_pregend", { ...conversation.data, isPregnantNow: false });
+        await sendTelegramMessage(chatId, "Any delivery or abortion in the last 12 months?", fitYesNoKeyboard("pregend"));
+      } else if (raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_breast", { ...conversation.data, isPregnantNow: null });
+        await sendTelegramMessage(chatId, "Are you breastfeeding now?", fitYesNoKeyboard("breast"));
+      } else {
+        await sendTelegramMessage(chatId, "Are you pregnant now? Tap Yes, No, or Skip.", fitYesNoKeyboard("preg"));
+      }
+      return true;
+    }
+    case "donor_fit_pregend": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "yes") {
+        await saveTelegramConversation(chatId, "donor_fit_pregdate", conversation.data);
+        await sendPregdateCalendar(chatId);
+      } else if (raw === "no" || raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_breast", { ...conversation.data, lastPregnancyEndDate: null });
+        await sendTelegramMessage(chatId, "Are you breastfeeding now?", fitYesNoKeyboard("breast"));
+      } else {
+        const typed = raw ? normalizeTelegramDonationDate(raw) : undefined;
+        if (typeof typed === "string") {
+          await saveTelegramConversation(chatId, "donor_fit_breast", { ...conversation.data, lastPregnancyEndDate: typed });
+          await sendTelegramMessage(chatId, "Are you breastfeeding now?", fitYesNoKeyboard("breast"));
+        } else await sendTelegramMessage(chatId, "Any delivery or abortion in the last 12 months? Tap Yes, No, or Skip.", fitYesNoKeyboard("pregend"));
+      }
+      return true;
+    }
+    case "donor_fit_pregdate": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "skip" || raw === "none") {
+        await saveTelegramConversation(chatId, "donor_fit_breast", { ...conversation.data, lastPregnancyEndDate: null });
+        await sendTelegramMessage(chatId, "Are you breastfeeding now?", fitYesNoKeyboard("breast"));
+      } else {
+        const typed = raw ? normalizeTelegramDonationDate(raw) : undefined;
+        if (typeof typed !== "string") await sendPregdateCalendar(chatId);
+        else {
+          await saveTelegramConversation(chatId, "donor_fit_breast", { ...conversation.data, lastPregnancyEndDate: typed });
+          await sendTelegramMessage(chatId, "Are you breastfeeding now?", fitYesNoKeyboard("breast"));
+        }
+      }
+      return true;
+    }
+    case "donor_fit_breast": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "yes") {
+        await blockFitness(chatId, { isBreastfeedingNow: true });
+      } else if (raw === "no" || raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_weight", { ...conversation.data, isBreastfeedingNow: raw === "no" ? false : null });
+        await sendTelegramMessage(chatId, "What is your weight in kilograms? Minimum 45 kg to donate. Send a number, or skip.");
+      } else {
+        await sendTelegramMessage(chatId, "Are you breastfeeding now? Tap Yes, No, or Skip.", fitYesNoKeyboard("breast"));
+      }
+      return true;
+    }
+    case "donor_fit_weight": {
+      const raw = (value ?? "").trim().toLowerCase();
+      const num = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : null;
+      if (raw === "skip" || raw === "unknown") {
+        await saveTelegramConversation(chatId, "donor_fit_hb", { ...conversation.data, weightKg: null });
+        await sendTelegramMessage(chatId, "What is your hemoglobin in g/dL (for example 13.5)? 12.5 or above is required. Send a number, or skip.");
+      } else if (num !== null && num >= 20 && num <= 500) {
+        await saveTelegramConversation(chatId, "donor_fit_hb", { ...conversation.data, weightKg: num });
+        await sendTelegramMessage(chatId, "What is your hemoglobin in g/dL (for example 13.5)? 12.5 or above is required. Send a number, or skip.");
+      } else {
+        await sendTelegramMessage(chatId, "Send your weight in kilograms (for example 62), or skip.");
+      }
+      return true;
+    }
+    case "donor_fit_hb": {
+      const raw = (value ?? "").trim().toLowerCase();
+      const num = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : null;
+      if (raw === "skip" || raw === "unknown") {
+        await saveTelegramConversation(chatId, "donor_fit_bp", { ...conversation.data, hemoglobinGdl: null });
+        await sendTelegramMessage(chatId, "What is your blood pressure? Send two numbers like 120 80, or skip.");
+      } else if (num !== null && num >= 1 && num <= 30) {
+        await saveTelegramConversation(chatId, "donor_fit_bp", { ...conversation.data, hemoglobinGdl: num });
+        await sendTelegramMessage(chatId, "What is your blood pressure? Send two numbers like 120 80, or skip.");
+      } else {
+        await sendTelegramMessage(chatId, "Send hemoglobin in g/dL (for example 13.5), or skip.");
+      }
+      return true;
+    }
+    case "donor_fit_bp": {
+      const raw = (value ?? "").trim().toLowerCase();
+      const match = raw.match(/^(\d{2,3})\s+(\d{2,3})$/);
+      const sys = match ? Number(match[1]) : null;
+      const dia = match ? Number(match[2]) : null;
+      if (raw === "skip" || raw === "unknown") {
+        await saveTelegramConversation(chatId, "donor_fit_pulse", { ...conversation.data, systolicBpMmhg: null, diastolicBpMmhg: null });
+        await sendTelegramMessage(chatId, "What is your pulse in beats per minute (for example 72)? Usual range 60–100. Send a number, or skip.");
+      } else if (sys !== null && dia !== null && sys >= 50 && sys <= 300 && dia >= 20 && dia <= 200) {
+        await saveTelegramConversation(chatId, "donor_fit_pulse", { ...conversation.data, systolicBpMmhg: sys, diastolicBpMmhg: dia });
+        await sendTelegramMessage(chatId, "What is your pulse in beats per minute (for example 72)? Usual range 60–100. Send a number, or skip.");
+      } else {
+        await sendTelegramMessage(chatId, "Send two numbers like 120 80 (systolic diastolic), or skip.");
+      }
+      return true;
+    }
+    case "donor_fit_pulse": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "skip" || raw === "unknown") {
+        await saveTelegramConversation(chatId, "donor_fit_ill", { ...conversation.data, pulseBpm: null });
+        await sendTelegramMessage(chatId, "Any illness or antibiotics in the last 14 days?", fitYesNoKeyboard("ill"));
+      } else if (/^\d{2,3}$/.test(raw) && Number(raw) >= 20 && Number(raw) <= 250) {
+        await saveTelegramConversation(chatId, "donor_fit_ill", { ...conversation.data, pulseBpm: Number(raw) });
+        await sendTelegramMessage(chatId, "Any illness or antibiotics in the last 14 days?", fitYesNoKeyboard("ill"));
+      } else {
+        await sendTelegramMessage(chatId, "Send your pulse in beats per minute (for example 72), or skip.");
+      }
+      return true;
+    }
+    case "donor_fit_ill": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "yes") {
+        await blockFitness(chatId, { illnessAntibiotics14d: true });
+      } else if (raw === "no" || raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_tat", { ...conversation.data, illnessAntibiotics14d: raw === "no" ? false : null });
+        await sendTelegramMessage(chatId, "Any tattoo or piercing in the last 12 months?", fitYesNoKeyboard("tat"));
+      } else {
+        await sendTelegramMessage(chatId, "Any illness or antibiotics in the last 14 days? Tap Yes, No, or Skip.", fitYesNoKeyboard("ill"));
+      }
+      return true;
+    }
+    case "donor_fit_tat": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "yes") {
+        await blockFitness(chatId, { tattooPiercing12m: true });
+      } else if (raw === "no" || raw === "skip") {
+        await saveTelegramConversation(chatId, "donor_fit_alc", { ...conversation.data, tattooPiercing12m: raw === "no" ? false : null });
+        await sendTelegramMessage(chatId, "Any alcohol in the last 24 hours?", fitYesNoKeyboard("alc"));
+      } else {
+        await sendTelegramMessage(chatId, "Any tattoo or piercing in the last 12 months? Tap Yes, No, or Skip.", fitYesNoKeyboard("tat"));
+      }
+      return true;
+    }
+    case "donor_fit_alc": {
+      const raw = (value ?? "").trim().toLowerCase();
+      if (raw === "yes") {
+        await blockFitness(chatId, { alcohol24h: true });
+      } else if (raw === "no" || raw === "skip") {
+        const saved = await getTelegramConversation(chatId);
+        const data = { ...(saved?.data ?? conversation.data), alcohol24h: raw === "no" ? false : null };
+        const result = evaluateFitness(pickFitness(data));
+        if (result.blocked) {
+          await clearTelegramConversation(chatId);
+          await sendTelegramMessage(chatId, `⛔ Thanks for answering honestly.\n\n${result.blocked}${result.deferUntil ? `\n\nYou can try again after ${result.deferUntil}. Just send /donate then.` : "\n\nSend /donate whenever you're ready."}`);
+        } else {
+          await saveTelegramConversation(chatId, "donor_location", data);
+          await sendTelegramReplyKeyboard(chatId, "Health check done ✅\n\nPlease share your location using the button below. We use it only to find nearby requests.", {
+            keyboard: [[{ text: "Share my location", request_location: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          });
+        }
+      } else {
+        await sendTelegramMessage(chatId, "Any alcohol in the last 24 hours? Tap Yes, No, or Skip.", fitYesNoKeyboard("alc"));
       }
       return true;
     }
@@ -452,6 +644,13 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
         }
         // ponytail: conditional claim — double-tap finds a non-review state (0 rows) and is ignored, no duplicate donor
         if (!await claimTelegramConversation(chatId, "donor_review", "donor_creating", data)) return true;
+        // ponytail: re-evaluate at commit — answers predate the review screen
+        const finalFit = evaluateFitness(pickFitness(data));
+        if (finalFit.blocked) {
+          await clearTelegramConversation(chatId);
+          await sendTelegramMessage(chatId, `⛔ Thanks for answering honestly.\n\n${finalFit.blocked}${finalFit.deferUntil ? `\n\nYou can try again after ${finalFit.deferUntil}. Just send /donate then.` : "\n\nSend /donate whenever you're ready."}`);
+          return true;
+        }
         let donor;
         try {
           donor = await createTelegramDonor({
@@ -462,6 +661,12 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
             latitude: data.latitude as number,
             longitude: data.longitude as number,
             lastDonationDate: (data.lastDonationDate as string | null) ?? null,
+            fitness: {
+              sex: typeof data.sex === "string" ? data.sex : null,
+              ...pickFitness(data),
+              fitnessDeferUntil: finalFit.deferUntil,
+              fitnessUnverified: finalFit.unverified,
+            },
           });
         } catch (error) {
           console.error(JSON.stringify({ event: "telegram_donor_create_failed", error: errText(error) }));
@@ -513,12 +718,69 @@ async function showOrSend(chatId: string, messageId: number | undefined, text: s
   await sendTelegramMessage(chatId, text, keyboard);
 }
 
+function fitText(label: string, value: string | number | boolean | null | undefined, suffix = ""): string {
+  if (value === null || value === undefined) return `• ${label}: —`;
+  if (typeof value === "boolean") return `• ${label}: ${value ? "Yes" : "No"}`;
+  return `• ${label}: ${value}${suffix}`;
+}
+
 function donorSummary(data: Record<string, string | number | boolean | null>): string {
-  return `🩸 Please confirm your donor registration:\n\n• Name: ${String(data["name"] ?? "—")}\n• Email: ${String(data["contact"] ?? "—")}\n• Blood group: ${String(data["bloodGroup"] ?? "—")}\n• Last donation: ${String(data["lastDonationDate"] ?? "none")}\n• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}\n• Notifications: Yes, in this chat\n\nTap Register me to save, Edit to change an answer, or Cancel.`;
+  const fit = pickFitness(data);
+  const check = evaluateFitness(fit);
+  const lines = [
+    `• Name: ${String(data["name"] ?? "—")}`,
+    `• Email: ${String(data["contact"] ?? "—")}`,
+    `• Blood group: ${String(data["bloodGroup"] ?? "—")}`,
+    `• Last donation: ${typeof data["lastDonationDate"] === "string" ? formatDisplayDate(data["lastDonationDate"]) : "none"}`,
+    `• Age: ${data["ageYears"] ?? "—"} • Sex: ${String(data["sex"] ?? "—")}`,
+    fitText("Weight", data["weightKg"], " kg"),
+    fitText("Hemoglobin", data["hemoglobinGdl"], " g/dL"),
+    data["systolicBpMmhg"] != null || data["diastolicBpMmhg"] != null
+      ? `• BP: ${data["systolicBpMmhg"] ?? "—"}/${data["diastolicBpMmhg"] ?? "—"}`
+      : "• BP: —",
+    fitText("Pulse", data["pulseBpm"], " bpm"),
+    fitText("Illness/antibiotics (14d)", data["illnessAntibiotics14d"]),
+    fitText("Tattoo/piercing (12m)", data["tattooPiercing12m"]),
+    fitText("Alcohol (24h)", data["alcohol24h"]),
+  ];
+  if (String(data["sex"]) === "female") {
+    lines.push(fitText("Pregnant now", data["isPregnantNow"]));
+    lines.push(typeof data["lastPregnancyEndDate"] === "string" ? `• Last pregnancy ended: ${formatDisplayDate(data["lastPregnancyEndDate"])}` : "• Last pregnancy ended: —");
+    lines.push(fitText("Breastfeeding", data["isBreastfeedingNow"]));
+  }
+  lines.push(`• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}`);
+  lines.push("• Notifications: Yes, in this chat");
+  if (check.unverified) lines.push("⚠️ Some health details skipped — profile will be marked unverified (the blood bank still checks on site).");
+  return `🩸 Please confirm your donor registration:\n\n${lines.join("\n")}\n\nTap Register me to save, Edit to change an answer, or Cancel.`;
 }
 
 async function sendDonatedGate(chatId: string): Promise<void> {
   await sendTelegramMessage(chatId, "Have you donated blood before?", donatedKeyboard());
+}
+
+// ponytail: conversation data carries the canonical FitnessFields keys so evaluateFitness applies unchanged
+function pickFitness(data: Record<string, string | number | boolean | null>): FitnessFields {
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const bool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  return {
+    ageYears: num(data.ageYears), weightKg: num(data.weightKg), hemoglobinGdl: num(data.hemoglobinGdl),
+    systolicBpMmhg: num(data.systolicBpMmhg), diastolicBpMmhg: num(data.diastolicBpMmhg), pulseBpm: num(data.pulseBpm),
+    isPregnantNow: bool(data.isPregnantNow), lastPregnancyEndDate: str(data.lastPregnancyEndDate),
+    isBreastfeedingNow: bool(data.isBreastfeedingNow), illnessAntibiotics14d: bool(data.illnessAntibiotics14d),
+    tattooPiercing12m: bool(data.tattooPiercing12m), alcohol24h: bool(data.alcohol24h),
+  };
+}
+
+async function blockFitness(chatId: string, partial: FitnessFields): Promise<void> {
+  const result = evaluateFitness(partial);
+  await clearTelegramConversation(chatId);
+  await sendTelegramMessage(chatId, `⛔ Thanks for answering honestly.\n\n${result.blocked ?? "You can't register right now."}${result.deferUntil ? `\n\nYou can try again after ${result.deferUntil}. Just send /donate then.` : "\n\nSend /donate whenever you're ready."}`);
+}
+
+async function sendPregdateCalendar(chatId: string): Promise<void> {
+  const now = new Date();
+  await sendTelegramMessage(chatId, "When did it end? Tap a date below, type it as day month year, or skip.", donationCalendarKeyboard(now.getFullYear(), now.getMonth() + 1));
 }
 
 async function sendDonationCalendar(chatId: string, isoMonth?: string | number | boolean | null): Promise<void> {
@@ -560,6 +822,16 @@ async function handleDonorEdit(chatId: string, field: string): Promise<void> {
         one_time_keyboard: true,
       });
       break;
+    case "fitness": {
+      // ponytail: one Edit button for all 12 fitness answers — clear and re-ask from age
+      const keep: Record<string, string | number | boolean | null> = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (["name", "contact", "bloodGroup", "lastDonationDate", "latitude", "longitude"].includes(key)) keep[key] = value;
+      }
+      await saveTelegramConversation(chatId, "donor_fit_age", keep);
+      await sendTelegramMessage(chatId, "No problem — let's redo the health check.\n\nHow old are you? Send your age in years, or skip.");
+      break;
+    }
     default:
       await sendTelegramMessage(chatId, donorSummary(data), donorReviewKeyboard());
       break;
@@ -698,7 +970,21 @@ export async function POST(req: Request) {
     const picked = data.slice("calday:".length);
     // ponytail: reuse the text path — calendar emits exact dates, the normalizer re-validates them
     const conversation = await getTelegramConversation(chatId);
-    if (conversation?.state !== "donor_last_donation" && conversation?.state !== "donor_date_confirm") {
+    if (conversation?.state === "donor_fit_pregdate") {
+      if (picked === "skip" || picked === "none") {
+        await answerCallbackQuery(callback.id, "Skipped");
+        await handleDonorFlow(chatId, "skip");
+      } else {
+        const iso = normalizeCalendarDate(picked);
+        if (!iso) {
+          await answerCallbackQuery(callback.id, "That date is not valid");
+        } else {
+          await answerCallbackQuery(callback.id, "Date selected");
+          await sendTelegramMessage(chatId, `You selected: ${formatDisplayDate(iso)}`);
+          await handleDonorFlow(chatId, `${Number(iso.slice(8, 10))} ${Number(iso.slice(5, 7))} ${iso.slice(0, 4)}`);
+        }
+      }
+    } else if (conversation?.state !== "donor_last_donation" && conversation?.state !== "donor_date_confirm") {
       if (callback) await answerCallbackQuery(callback.id, "");
     } else if (picked === "none") {
       await answerCallbackQuery(callback.id, "No previous donation");
@@ -731,6 +1017,16 @@ export async function POST(req: Request) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, "Back to review");
     await showDonorReview(chatId, callback.message.message_id);
+  } else if (data?.startsWith("fit:sex:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const choice = data.slice("fit:sex:".length);
+    await answerCallbackQuery(callback.id, "Noted");
+    await handleDonorFlow(chatId, choice);
+  } else if (data?.startsWith("fit:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const choice = data.slice(data.lastIndexOf(":") + 1);
+    await answerCallbackQuery(callback.id, "Noted");
+    await handleDonorFlow(chatId, choice);
   } else if (data?.startsWith("donor:edit:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, "What should it be instead?");

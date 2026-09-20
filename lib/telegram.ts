@@ -115,6 +115,24 @@ export function unitsKeyboard(): InlineKeyboard {
   return { inline_keyboard: [row(1, 5), row(6, 10)] };
 }
 
+// ponytail: fitness Q&A mirrors the web form — one question at a time, skip always allowed
+export function fitSexKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "Male", callback_data: "fit:sex:male" },
+    { text: "Female", callback_data: "fit:sex:female" },
+    { text: "Other", callback_data: "fit:sex:other" },
+    { text: "Skip", callback_data: "fit:sex:skip" },
+  ]] };
+}
+
+export function fitYesNoKeyboard(field: string):InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "✅ Yes", callback_data: `fit:${field}:yes` },
+    { text: "❌ No", callback_data: `fit:${field}:no` },
+    { text: "Skip", callback_data: `fit:${field}:skip` },
+  ]] };
+}
+
 // ponytail: date step starts with a gate — calendar only appears for prior donors
 export function donatedKeyboard():InlineKeyboard {
   return { inline_keyboard: [[
@@ -150,6 +168,7 @@ export function donorEditMenuKeyboard():InlineKeyboard {
       { text: "✏️ Last donation", callback_data: "donor:edit:last" },
       { text: "✏️ Location", callback_data: "donor:edit:location" },
     ],
+    [{ text: "✏️ Fitness answers", callback_data: "donor:edit:fitness" }],
     [{ text: "« Back to review", callback_data: "donor:review" }],
   ] };
 }

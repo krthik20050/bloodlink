@@ -205,18 +205,43 @@ export async function createTelegramDonor(input: {
   latitude: number;
   longitude: number;
   lastDonationDate: string | null;
+  fitness?: {
+    sex?: string | null; ageYears?: number | null; weightKg?: number | null;
+    hemoglobinGdl?: number | null; systolicBpMmhg?: number | null; diastolicBpMmhg?: number | null;
+    pulseBpm?: number | null; isPregnantNow?: boolean | null; lastPregnancyEndDate?: string | null;
+    isBreastfeedingNow?: boolean | null; illnessAntibiotics14d?: boolean | null;
+    tattooPiercing12m?: boolean | null; alcohol24h?: boolean | null;
+    fitnessDeferUntil?: string | null; fitnessUnverified?: boolean | null;
+  };
 }): Promise<Donor> {
   const existing = await db().from("donors").select("*").eq("telegram_chat_id", input.chatId).maybeSingle();
   if (existing.error) throw existing.error;
-  const values = {
+  const fit = input.fitness ?? {};
+  const base = {
     name: input.name, contact: input.contact, blood_group: input.bloodGroup,
     latitude: input.latitude, longitude: input.longitude,
     last_donation_date: input.lastDonationDate, availability_status: "AVAILABLE",
     notification_consent: true, telegram_chat_id: input.chatId,
   };
-  const result = existing.data
-    ? await db().from("donors").update(values).eq("id", existing.data.id).select("*").single()
-    : await db().from("donors").insert(values).select("*").single();
+  const full = {
+    ...base,
+    sex: fit.sex ?? null, age_years: fit.ageYears ?? null, weight_kg: fit.weightKg ?? null,
+    hemoglobin_gdl: fit.hemoglobinGdl ?? null, systolic_bp_mmhg: fit.systolicBpMmhg ?? null,
+    diastolic_bp_mmhg: fit.diastolicBpMmhg ?? null, pulse_bpm: fit.pulseBpm ?? null,
+    is_pregnant_now: fit.isPregnantNow ?? null, last_pregnancy_end_date: fit.lastPregnancyEndDate ?? null,
+    is_breastfeeding_now: fit.isBreastfeedingNow ?? null, illness_antibiotics_14d: fit.illnessAntibiotics14d ?? null,
+    tattoo_piercing_12m: fit.tattooPiercing12m ?? null, alcohol_24h: fit.alcohol24h ?? null,
+    fitness_defer_until: fit.fitnessDeferUntil ?? null, fitness_unverified: fit.fitnessUnverified ?? false,
+  };
+  const save = (values: Record<string, unknown>) => existing.data
+    ? db().from("donors").update(values).eq("id", (existing.data as { id: string }).id).select("*").single()
+    : db().from("donors").insert(values).select("*").single();
+  let result = await save(full);
+  if (result.error && /column|42703|42P01|PGRST204/i.test(result.error.message)) {
+    // ponytail: pre-fitness DBs lack the columns; the core profile still registers
+    console.error(JSON.stringify({ event: "telegram_donor_fitness_skipped", error: result.error.message }));
+    result = await save(base);
+  }
   if (result.error) throw result.error;
   return donorFromRow(result.data);
 }
