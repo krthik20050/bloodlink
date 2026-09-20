@@ -57,6 +57,20 @@ function AuthForm() {
     setBusy(true);
     setStatus("");
     try {
+      // ponytail: non-email login attempts go to the prototype admin gate.
+      if (!email.includes("@")) {
+        const res = await fetch("/api/admin/demo-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: email.trim(), password }),
+        });
+        if (res.ok) {
+          window.location.href = "/admin";
+          return;
+        }
+        setStatus("Invalid admin credentials.", "error");
+        return;
+      }
       const supabase = createSupabaseBrowserClient();
       const result =
         mode === "sign-in"
@@ -262,12 +276,12 @@ function AuthForm() {
                       <Mail size={17} className="rs-auth-input-icon" aria-hidden="true" />
                       <input
                         id="auth-email"
-                        type="email"
+                        type="text"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
-                        autoComplete="email"
-                        placeholder="name@example.com"
+                        autoComplete="username"
+                        placeholder="name@example.com or admin login"
                         className="rs-auth-input"
                       />
                     </div>
@@ -285,7 +299,7 @@ function AuthForm() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
-                        minLength={8}
+                        minLength={mode === "sign-up" ? 8 : undefined}
                         autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
                         placeholder={
                           mode === "sign-in" ? "Enter your password" : "Create password (8+ characters)"
