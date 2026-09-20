@@ -54,11 +54,11 @@ export function consentKeyboard():InlineKeyboard {
   ]] };
 }
 export function requesterUrgencyKeyboard():InlineKeyboard {
-  return { inline_keyboard: [[
-    { text: "Routine", callback_data: "request:urgency:ROUTINE" },
-    { text: "Urgent", callback_data: "request:urgency:URGENT" },
-    { text: "Emergency", callback_data: "request:urgency:EMERGENCY" },
-  ]] };
+  return { inline_keyboard: [
+    [{ text: "Routine · within 24–48h", callback_data: "request:urgency:ROUTINE" }],
+    [{ text: "Urgent · within 6–12h", callback_data: "request:urgency:URGENT" }],
+    [{ text: "Emergency · immediate", callback_data: "request:urgency:EMERGENCY" }],
+  ] };
 }
 const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -90,17 +90,32 @@ export function donationCalendarKeyboard(year: number, month: number): InlineKey
   return { inline_keyboard: rows };
 }
 
-export async function editTelegramCalendar(chatId: string, messageId: number, text: string, replyMarkup: InlineKeyboard): Promise<void> {
+export async function editTelegramMessage(chatId: string, messageId: number, text: string, replyMarkup: InlineKeyboard): Promise<void> {
   if (configured()) await api("editMessageText", { chat_id: chatId, message_id: messageId, text, reply_markup: replyMarkup });
 }
 
-// ponytail: donor review mirrors the requester pattern — confirm, per-field edit, cancel
+export async function editTelegramCalendar(chatId: string, messageId: number, text: string, replyMarkup: InlineKeyboard): Promise<void> {
+  await editTelegramMessage(chatId, messageId, text, replyMarkup);
+}
+
+// ponytail: taps don't appear as user messages, so every button choice is echoed back visibly
+export function unitsKeyboard(): InlineKeyboard {
+  const row = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, i) => ({ text: String(from + i), callback_data: `req_units:${from + i}` }));
+  return { inline_keyboard: [row(1, 5), row(6, 10)] };
+}
+
+// ponytail: two-level edit — review shows Edit, Edit swaps in the field menu, field jumps back to one step
 export function donorReviewKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "✅ Register me", callback_data: "donor:confirm:yes" },
+    { text: "✏️ Edit", callback_data: "donor:editmenu" },
+    { text: "❌ Cancel", callback_data: "donor:confirm:no" },
+  ]] };
+}
+
+export function donorEditMenuKeyboard():InlineKeyboard {
   return { inline_keyboard: [
-    [
-      { text: "✅ Register me", callback_data: "donor:confirm:yes" },
-      { text: "❌ Cancel", callback_data: "donor:confirm:no" },
-    ],
     [
       { text: "✏️ Name", callback_data: "donor:edit:name" },
       { text: "✏️ Email", callback_data: "donor:edit:contact" },
@@ -110,16 +125,21 @@ export function donorReviewKeyboard():InlineKeyboard {
       { text: "✏️ Last donation", callback_data: "donor:edit:last" },
       { text: "✏️ Location", callback_data: "donor:edit:location" },
     ],
+    [{ text: "« Back to review", callback_data: "donor:review" }],
   ] };
 }
 
 export function requesterConfirmationKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "✅ Create request", callback_data: "request:confirm:yes" },
+    { text: "✏️ Edit", callback_data: "request:editmenu" },
+    { text: "❌ Cancel", callback_data: "request:confirm:no" },
+  ]] };
+}
+
+export function requesterEditMenuKeyboard():InlineKeyboard {
   return { inline_keyboard: [
-    [
-      { text: "✅ Create request", callback_data: "request:confirm:yes" },
-      { text: "❌ Cancel", callback_data: "request:confirm:no" },
-    ],
-    // ponytail: per-field edit jumps back to that step (data kept); answering flows forward to confirm again
+    // ponytail: per-field edit jumps back to that step (data kept); answering flows forward to review again
     [
       { text: "✏️ Name", callback_data: "request:edit:name" },
       { text: "✏️ Contact", callback_data: "request:edit:contact" },
@@ -130,6 +150,9 @@ export function requesterConfirmationKeyboard():InlineKeyboard {
       { text: "✏️ Urgency", callback_data: "request:edit:urgency" },
       { text: "✏️ Hospital", callback_data: "request:edit:hospital" },
     ],
-    [{ text: "✏️ Location", callback_data: "request:edit:location" }],
+    [
+      { text: "✏️ Location", callback_data: "request:edit:location" },
+      { text: "« Back to review", callback_data: "request:review" },
+    ],
   ] };
 }

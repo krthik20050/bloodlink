@@ -3,6 +3,8 @@ import { bloodGroups, type BloodGroup } from "@/lib/domain";
 import { formatTelegramRequest, isTelegramBloodGroup, parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
 import { normalizeCalendarDate, normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { acceptNotification, declineNotification } from "@/lib/match-lifecycle";
+import { matchDonors } from "@/lib/matching";
+import { queueNotifications } from "@/lib/notifications";
 import {
   clearTelegramConversation,
   cancelRequestForRequester,
@@ -15,6 +17,7 @@ import {
   linkTelegramDonor,
   listRequestsByRequesterId,
   listDonors,
+  listNotifications,
   saveTelegramConversation,
   updateTelegramRequester,
 } from "@/lib/supabase/repository";
@@ -22,15 +25,19 @@ import {
   answerCallbackQuery,
   configureTelegramBot,
   donationCalendarKeyboard,
+  donorEditMenuKeyboard,
   donorReviewKeyboard,
   editTelegramCalendar,
+  editTelegramMessage,
   sendTelegramMessage,
   sendTelegramReplyKeyboard,
   bloodGroupKeyboard,
   consentKeyboard,
   telegramEntryKeyboard,
   requesterConfirmationKeyboard,
+  requesterEditMenuKeyboard,
   requesterUrgencyKeyboard,
+  unitsKeyboard,
 } from "@/lib/telegram";
 
 type TelegramUpdate = {
@@ -85,7 +92,41 @@ async function startRequesterFlow(chatId: string) {
 }
 
 function requestConfirmationText(data: Record<string, string | number | boolean | null>): string {
-  return `🩸 Please confirm your blood request:\n\n• Patient: ${String(data["name"] ?? "—")}\n• Contact: ${String(data["contact"] ?? "—")}\n• Blood group: ${String(data["bloodGroup"] ?? "—")}\n• Units: ${String(data["units"] ?? "—")}\n• Urgency: ${String(data["urgency"] ?? "—")}\n• Hospital: ${String(data["hospital"] ?? "—")}\n• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}\n\nTap Create request to send, a ✏️ field to change just that answer, or Cancel.`;
+  return `🩸 Please confirm your blood request:\n\n• Patient: ${String(data["name"] ?? "—")}\n• Contact: ${String(data["contact"] ?? "—")}\n• Blood group: ${String(data["bloodGroup"] ?? "—")}\n• Units: ${String(data["units"] ?? "—")}\n• Urgency: ${String(data["urgency"] ?? "—")}\n• Hospital: ${String(data["hospital"] ?? "—")}\n• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}\n\nTap Create request to send, Edit to change an answer, or Cancel.`;
+}
+
+// ponytail: Telegram locations are usually valid, but forged updates aren't — same ranges as the web zod schema
+function validCoords(value: unknown): value is { latitude: number; longitude: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const { latitude, longitude } = value as { latitude: unknown; longitude: unknown };
+  return typeof latitude === "number" && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+    && typeof longitude === "number" && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+}
+
+// ponytail: conversation jsonb is untrusted — mirrors app/api/requests/route.ts ranges; reprompt, never coerce
+function requestCommitProblem(data: Record<string, string | number | boolean | null>): { field: string; message: string } | null {
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (name.length < 2 || name.length > 60) return { field: "name", message: "That patient name looks invalid (2–60 characters)." };
+  const contact = typeof data.contact === "string" ? data.contact.trim() : "";
+  if (contact.length < 3 || contact.length > 100) return { field: "contact", message: "That contact looks invalid (3–100 characters)." };
+  if (typeof data.bloodGroup !== "string" || !isTelegramBloodGroup(data.bloodGroup)) return { field: "blood", message: "That blood group looks invalid." };
+  if (typeof data.units !== "number" || !Number.isInteger(data.units) || data.units < 1 || data.units > 10) return { field: "units", message: "Those units look invalid (1–10)." };
+  if (data.urgency !== "ROUTINE" && data.urgency !== "URGENT" && data.urgency !== "EMERGENCY") return { field: "urgency", message: "That urgency looks invalid." };
+  const hospital = typeof data.hospital === "string" ? data.hospital.trim() : "";
+  if (hospital.length < 2 || hospital.length > 100) return { field: "hospital", message: "That hospital name looks invalid (2–100 characters)." };
+  if (!validCoords({ latitude: data.latitude, longitude: data.longitude })) return { field: "location", message: "That hospital location looks invalid." };
+  return null;
+}
+
+// ponytail: same reprompt-not-coerce rule for the donor commit
+function donorCommitProblem(data: Record<string, string | number | boolean | null>): { field: string; message: string } | null {
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (name.length < 2 || name.length > 60) return { field: "name", message: "That name looks invalid (2–60 characters)." };
+  if (typeof data.contact !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.contact.trim())) return { field: "contact", message: "That email looks invalid." };
+  if (typeof data.bloodGroup !== "string" || !bloodGroups.includes(data.bloodGroup as BloodGroup)) return { field: "blood", message: "That blood group looks invalid." };
+  if (data.lastDonationDate !== null && (typeof data.lastDonationDate !== "string" || !normalizeCalendarDate(data.lastDonationDate))) return { field: "last", message: "That donation date looks invalid." };
+  if (!validCoords({ latitude: data.latitude, longitude: data.longitude })) return { field: "location", message: "That location looks invalid." };
+  return null;
 }
 
 // ponytail: edit buttons jump to one step with data kept; the step's normal handler flows forward to confirm again
@@ -167,7 +208,7 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
       if (!value || !isTelegramBloodGroup(value)) await sendTelegramMessage(chatId, `Please choose one of: ${bloodGroups.join(", ")}`, bloodGroupKeyboard());
       else {
         await saveTelegramConversation(chatId, "request_units", { ...conversation.data, bloodGroup: value });
-        await sendTelegramMessage(chatId, "How many units are needed? Send a number from 1 to 10.");
+        await sendTelegramMessage(chatId, "How many units are needed? Tap a number or type 1 to 10.", unitsKeyboard());
       }
       return true;
     case "request_units": {
@@ -202,8 +243,8 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
       return true;
     }
     case "request_location":
-      if (!location) {
-        await sendTelegramReplyKeyboard(chatId, "Please tap “Share hospital location” so nearby donors can be matched.", {
+      if (!location || !validCoords(location)) {
+        await sendTelegramReplyKeyboard(chatId, "That location looks invalid. Please tap “Share hospital location” so nearby donors can be matched.", {
           keyboard: [[{ text: "Share hospital location", request_location: true }]],
           resize_keyboard: true,
           one_time_keyboard: true,
@@ -216,34 +257,58 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
       return true;
     case "request_confirmation":
       if (/^edit$/i.test(value ?? "")) {
-        await sendTelegramMessage(chatId, requestConfirmationText(conversation.data), requesterConfirmationKeyboard());
+        await showRequestMenu(chatId);
         return true;
       }
       if (!/^yes$/i.test(value ?? "")) {
         if (/^no$/i.test(value ?? "")) {
           await clearTelegramConversation(chatId);
           await sendTelegramMessage(chatId, "Request cancelled. Send /request whenever you need blood.");
-        } else await sendTelegramMessage(chatId, "Tap Create request to send, a ✏️ field to change one answer, or Cancel.", requesterConfirmationKeyboard());
+        } else await sendTelegramMessage(chatId, "Tap Create request to send, Edit to change an answer, or Cancel.", requesterConfirmationKeyboard());
         return true;
       }
       {
         const data = conversation.data;
-        try {
-          await updateTelegramRequester(chatId, { name: String(data.name ?? ""), contact: String(data.contact ?? "") });
-        } catch (error) {
-          // ponytail: contact save is best-effort until migration 0006 is applied; never block the request itself
-          console.error(JSON.stringify({ event: "telegram_requester_contact_failed", error: error instanceof Error ? error.message : String(error) }));
+        const problem = requestCommitProblem(data);
+        if (problem) {
+          await sendTelegramMessage(chatId, `⚠️ ${problem.message} Let's fix it.`, requesterConfirmationKeyboard());
+          await handleRequestEdit(chatId, problem.field);
+          return true;
         }
-        const request = await createRequest({
-          requesterId: await requesterId(chatId),
-          bloodGroup: data.bloodGroup as BloodGroup,
-          unitsRequired: Number(data.units),
-          hospital: String(data.hospital),
-          location: { latitude: Number(data.latitude), longitude: Number(data.longitude) },
-          urgency: data.urgency as "ROUTINE" | "URGENT" | "EMERGENCY",
-          status: "OPEN",
-          createdAt: new Date().toISOString(),
-        });
+        // ponytail: claim the confirm first — a double-tap finds a non-confirm state and is ignored, no duplicate request
+        await saveTelegramConversation(chatId, "request_creating", data);
+        let request;
+        try {
+          try {
+            await updateTelegramRequester(chatId, { name: (data.name as string).trim(), contact: (data.contact as string).trim() });
+          } catch (error) {
+            // ponytail: contact save is best-effort until migration 0006 is applied; never block the request itself
+            console.error(JSON.stringify({ event: "telegram_requester_contact_failed", error: error instanceof Error ? error.message : String(error) }));
+          }
+          request = await createRequest({
+            requesterId: await requesterId(chatId),
+            bloodGroup: data.bloodGroup as BloodGroup,
+            unitsRequired: data.units as number,
+            hospital: (data.hospital as string).trim(),
+            location: { latitude: data.latitude as number, longitude: data.longitude as number },
+            urgency: data.urgency as "ROUTINE" | "URGENT" | "EMERGENCY",
+            status: "OPEN",
+            createdAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          console.error(JSON.stringify({ event: "telegram_request_create_failed", error: error instanceof Error ? error.message : String(error) }));
+          await saveTelegramConversation(chatId, "request_confirmation", data);
+          await sendTelegramMessage(chatId, "Something went wrong creating your request. Tap Create request to try again.", requesterConfirmationKeyboard());
+          return true;
+        }
+        // ponytail: same match+queue as POST /requests/[id]/match; best-effort so notify failure never fails the request
+        try {
+          const matches = matchDonors(request, await listDonors(), await listNotifications());
+          await queueNotifications(request.id, matches.selected.map(item => item.donorId), 1);
+          console.info(JSON.stringify({ event: "matching_completed", requestId: request.id, selected: matches.selected.length, source: "telegram" }));
+        } catch (error) {
+          console.error(JSON.stringify({ event: "telegram_match_failed", requestId: request.id, error: error instanceof Error ? error.message : String(error) }));
+        }
         await clearTelegramConversation(chatId);
         await sendTelegramMessage(chatId, `✅ Blood request created.\n\n${formatTelegramRequest(request)}\n\nUse /status to check it or /cancel_request ${request.id} to cancel it.`);
       }
@@ -299,8 +364,8 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
       }
       return true;
     case "donor_location":
-      if (!location) {
-        await sendTelegramReplyKeyboard(chatId, "Please tap “Share my location” so we can finish registration.", {
+      if (!location || !validCoords(location)) {
+        await sendTelegramReplyKeyboard(chatId, "That location looks invalid. Please tap “Share my location” so we can finish registration.", {
           keyboard: [[{ text: "Share my location", request_location: true }]],
           resize_keyboard: true,
           one_time_keyboard: true,
@@ -332,22 +397,38 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
         await clearTelegramConversation(chatId);
         await sendTelegramMessage(chatId, "Registration cancelled. Send /donate whenever you are ready.");
       } else if (normalized === "edit") {
-        await sendTelegramMessage(chatId, donorSummary(conversation.data), donorReviewKeyboard());
+        await showDonorMenu(chatId);
       } else if (normalized === "yes" || normalized === "confirm") {
         const data = conversation.data;
-        const donor = await createTelegramDonor({
-          chatId,
-          name: String(data.name),
-          contact: String(data.contact),
-          bloodGroup: data.bloodGroup as BloodGroup,
-          latitude: Number(data.latitude),
-          longitude: Number(data.longitude),
-          lastDonationDate: (data.lastDonationDate as string | null) ?? null,
-        });
+        const problem = donorCommitProblem(data);
+        if (problem) {
+          await sendTelegramMessage(chatId, `⚠️ ${problem.message} Let's fix it.`, donorReviewKeyboard());
+          await handleDonorEdit(chatId, problem.field);
+          return true;
+        }
+        // ponytail: claim the confirm first — a double-tap finds a non-review state and is ignored, no duplicate donor
+        await saveTelegramConversation(chatId, "donor_creating", data);
+        let donor;
+        try {
+          donor = await createTelegramDonor({
+            chatId,
+            name: (data.name as string).trim(),
+            contact: (data.contact as string).trim(),
+            bloodGroup: data.bloodGroup as BloodGroup,
+            latitude: data.latitude as number,
+            longitude: data.longitude as number,
+            lastDonationDate: (data.lastDonationDate as string | null) ?? null,
+          });
+        } catch (error) {
+          console.error(JSON.stringify({ event: "telegram_donor_create_failed", error: error instanceof Error ? error.message : String(error) }));
+          await saveTelegramConversation(chatId, "donor_review", data);
+          await sendTelegramMessage(chatId, "Something went wrong saving your registration. Tap Register me to try again.", donorReviewKeyboard());
+          return true;
+        }
         await clearTelegramConversation(chatId);
         await sendTelegramMessage(chatId, `✅ You’re registered, ${donor.name}.\n\nWe’ll notify you here about compatible nearby requests. Use /status to check your profile.`);
       } else {
-        await sendTelegramMessage(chatId, "Tap Register me to save, a ✏️ field to change one answer, or Cancel.", donorReviewKeyboard());
+        await sendTelegramMessage(chatId, "Tap Register me to save, Edit to change an answer, or Cancel.", donorReviewKeyboard());
       }
       return true;
     }
@@ -355,8 +436,41 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
   return true;
 }
 
+// ponytail: menus edit the review message in place when tapped, or send fresh when typed
+async function showRequestMenu(chatId: string, messageId?: number): Promise<void> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("request_")) return;
+  await showOrSend(chatId, messageId, "What do you want to change? Tap a field.", requesterEditMenuKeyboard());
+}
+
+async function showRequestReview(chatId: string, messageId?: number): Promise<void> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("request_")) return;
+  await showOrSend(chatId, messageId, requestConfirmationText(conversation.data), requesterConfirmationKeyboard());
+}
+
+async function showDonorMenu(chatId: string, messageId?: number): Promise<void> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("donor_")) return;
+  await showOrSend(chatId, messageId, "What do you want to change? Tap a field.", donorEditMenuKeyboard());
+}
+
+async function showDonorReview(chatId: string, messageId?: number): Promise<void> {
+  const conversation = await getTelegramConversation(chatId);
+  if (!conversation?.state.startsWith("donor_")) return;
+  await showOrSend(chatId, messageId, donorSummary(conversation.data), donorReviewKeyboard());
+}
+
+async function showOrSend(chatId: string, messageId: number | undefined, text: string, keyboard: Parameters<typeof editTelegramMessage>[3]): Promise<void> {
+  if (messageId) {
+    try { await editTelegramMessage(chatId, messageId, text, keyboard); return; }
+    catch { /* fall through to a fresh message */ }
+  }
+  await sendTelegramMessage(chatId, text, keyboard);
+}
+
 function donorSummary(data: Record<string, string | number | boolean | null>): string {
-  return `🩸 Please confirm your donor registration:\n\n• Name: ${String(data["name"] ?? "—")}\n• Email: ${String(data["contact"] ?? "—")}\n• Blood group: ${String(data["bloodGroup"] ?? "—")}\n• Last donation: ${String(data["lastDonationDate"] ?? "none")}\n• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}\n• Notifications: Yes, in this chat\n\nTap Register me to save, a ✏️ field to change just that answer, or Cancel.`;
+  return `🩸 Please confirm your donor registration:\n\n• Name: ${String(data["name"] ?? "—")}\n• Email: ${String(data["contact"] ?? "—")}\n• Blood group: ${String(data["bloodGroup"] ?? "—")}\n• Last donation: ${String(data["lastDonationDate"] ?? "none")}\n• Location: ${data["latitude"] ?? "—"}, ${data["longitude"] ?? "—"}\n• Notifications: Yes, in this chat\n\nTap Register me to save, Edit to change an answer, or Cancel.`;
 }
 
 async function sendDonationCalendar(chatId: string, isoMonth?: string | number | boolean | null): Promise<void> {
@@ -456,7 +570,8 @@ async function handleMessage(chatId: string, text?: string, location?: { latitud
 
 export async function POST(req: Request) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
-  if (process.env.MOCK_TELEGRAM !== "true" && (!process.env.TELEGRAM_WEBHOOK_SECRET || secret !== process.env.TELEGRAM_WEBHOOK_SECRET)) {
+  // ponytail: mock stubs only outbound sends — webhook auth is always enforced
+  if (!process.env.TELEGRAM_WEBHOOK_SECRET || secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
     return NextResponse.json({ error: "Unauthorized webhook" }, { status: 401 });
   }
   let update: TelegramUpdate;
@@ -467,6 +582,9 @@ export async function POST(req: Request) {
   }
   const callback = update.callback_query;
   const data = callback?.data;
+  // ponytail: callback dispatch must never throw — Telegram retries non-200s, which double-creates; always 200 + answer
+  if (callback && data) {
+  try {
   if (data === "donate" && callback?.message) {
     await answerCallbackQuery(callback.id, "Starting donor registration");
     await startDonorFlow(String(callback.message.chat.id));
@@ -477,12 +595,31 @@ export async function POST(req: Request) {
     const chatId = String(callback.message.chat.id);
     const group = data.slice(6);
     await answerCallbackQuery(callback.id, "Blood group selected");
+    // ponytail: taps leave no user-side message, so echo the choice before the next question
+    await sendTelegramMessage(chatId, `You selected: ${group}`);
     if ((await getTelegramConversation(chatId))?.state === "request_blood_group") await handleRequesterFlow(chatId, group);
     else await handleDonorFlow(chatId, group);
+  } else if (data?.startsWith("req_units:") && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    const units = data.slice("req_units:".length);
+    await answerCallbackQuery(callback.id, "Units selected");
+    await sendTelegramMessage(chatId, `You selected: ${units} unit${units === "1" ? "" : "s"}`);
+    await handleRequesterFlow(chatId, units);
   } else if (data?.startsWith("request:urgency:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
+    const urgency = data.slice("request:urgency:".length);
+    const label = urgency === "ROUTINE" ? "Routine · within 24–48h" : urgency === "URGENT" ? "Urgent · within 6–12h" : "Emergency · immediate";
     await answerCallbackQuery(callback.id, "Urgency selected");
-    await handleRequesterFlow(chatId, data.slice("request:urgency:".length));
+    await sendTelegramMessage(chatId, `You selected: ${label}`);
+    await handleRequesterFlow(chatId, urgency);
+  } else if (data === "request:editmenu" && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "What do you want to change?");
+    await showRequestMenu(chatId, callback.message.message_id);
+  } else if (data === "request:review" && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "Back to review");
+    await showRequestReview(chatId, callback.message.message_id);
   } else if (data?.startsWith("request:confirm:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, data.endsWith(":yes") ? "Creating request" : "Request cancelled");
@@ -528,6 +665,14 @@ export async function POST(req: Request) {
         await handleDonorFlow(chatId, `${d} ${m} ${y}`);
       }
     }
+  } else if (data === "donor:editmenu" && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "What do you want to change?");
+    await showDonorMenu(chatId, callback.message.message_id);
+  } else if (data === "donor:review" && callback?.message) {
+    const chatId = String(callback.message.chat.id);
+    await answerCallbackQuery(callback.id, "Back to review");
+    await showDonorReview(chatId, callback.message.message_id);
   } else if (data?.startsWith("donor:edit:") && callback?.message) {
     const chatId = String(callback.message.chat.id);
     await answerCallbackQuery(callback.id, "What should it be instead?");
@@ -558,7 +703,13 @@ export async function POST(req: Request) {
   } else if (data === "help" && callback?.message) {
     await answerCallbackQuery(callback.id, "Here are the available BloodLink actions.");
     await sendTelegramMessage(String(callback.message.chat.id), helpText, telegramEntryKeyboard());
-  } else if (update.message) {
+  }
+  } catch (error) {
+    console.error(JSON.stringify({ event: "telegram_callback_failed", error: error instanceof Error ? error.message : String(error) }));
+    try { await answerCallbackQuery(callback.id, "Something went wrong, please try again."); } catch { /* ponytail: answer is best-effort */ }
+  }
+  }
+  if (update.message) {
     try {
       try {
         await configureTelegramBot(commands);
