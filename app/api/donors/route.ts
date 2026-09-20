@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { bloodGroups } from "@/lib/domain";
-import { createDonor, createTelegramLink, listDonorsByUser } from "@/lib/supabase/repository";
+import { createDonor, createTelegramLink, listDonorsByUser, updateDonor } from "@/lib/supabase/repository";
 import { getAuthenticatedUser, hasSameOrigin } from "@/lib/supabase/auth";
 import { assertSupabaseEnv } from "@/lib/supabase/server";
 
@@ -78,13 +78,44 @@ export async function POST(req: Request) {
     const parsed = donorSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: "Invalid donor profile", details: parsed.error.flatten() }, { status: 400 });
     const data = parsed.data;
-    const donor = await createDonor({
-      ...data,
-      userId: user.id,
-      location: { latitude: data.latitude, longitude: data.longitude },
-      availability: "AVAILABLE",
-      telegramChatId: null,
-    });
+    // ponytail: user_id is unique — a resubmit updates the same profile instead of 500ing
+    const current = (await listDonorsByUser(user.id))[0];
+    let donor;
+    if (current) {
+      await updateDonor(current.id, {
+        name: data.name,
+        contact: data.contact,
+        bloodGroup: data.bloodGroup,
+        location: { latitude: data.latitude, longitude: data.longitude },
+        lastDonationDate: data.lastDonationDate,
+        notificationConsent: data.notificationConsent,
+        availability: "AVAILABLE",
+        sex: data.sex ?? null,
+        ageYears: data.ageYears ?? null,
+        weightKg: data.weightKg ?? null,
+        hemoglobinGdl: data.hemoglobinGdl ?? null,
+        systolicBpMmhg: data.systolicBpMmhg ?? null,
+        diastolicBpMmhg: data.diastolicBpMmhg ?? null,
+        pulseBpm: data.pulseBpm ?? null,
+        isPregnantNow: data.isPregnantNow ?? null,
+        lastPregnancyEndDate: data.lastPregnancyEndDate ?? null,
+        isBreastfeedingNow: data.isBreastfeedingNow ?? null,
+        illnessAntibiotics14d: data.illnessAntibiotics14d ?? null,
+        tattooPiercing12m: data.tattooPiercing12m ?? null,
+        alcohol24h: data.alcohol24h ?? null,
+        fitnessDeferUntil: data.fitnessDeferUntil ?? null,
+        fitnessUnverified: data.fitnessUnverified ?? false,
+      });
+      donor = (await listDonorsByUser(user.id))[0] ?? current;
+    } else {
+      donor = await createDonor({
+        ...data,
+        userId: user.id,
+        location: { latitude: data.latitude, longitude: data.longitude },
+        availability: "AVAILABLE",
+        telegramChatId: null,
+      });
+    }
     const token = await createTelegramLink(donor.id);
     console.info(JSON.stringify({ event: "donor_created", requestId, donorId: donor.id }));
     return NextResponse.json({

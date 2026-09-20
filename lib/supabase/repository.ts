@@ -390,13 +390,36 @@ export async function updateRequest(id: string, patch: Partial<Pick<BloodRequest
   if (error) throw error;
 }
 
-export async function updateDonor(id: string, patch: Partial<Pick<Donor, "activeMatchRequestId" | "lastNotifiedAt" | "notificationConsent" | "availability">>): Promise<void> {
+export async function updateDonor(id: string, patch: Partial<Pick<Donor, "activeMatchRequestId" | "lastNotifiedAt" | "notificationConsent" | "availability" | "name" | "contact" | "bloodGroup" | "location" | "lastDonationDate" | "sex" | "ageYears" | "weightKg" | "hemoglobinGdl" | "systolicBpMmhg" | "diastolicBpMmhg" | "pulseBpm" | "isPregnantNow" | "lastPregnancyEndDate" | "isBreastfeedingNow" | "illnessAntibiotics14d" | "tattooPiercing12m" | "alcohol24h" | "fitnessDeferUntil" | "fitnessUnverified">>): Promise<void> {
   // ponytail: undefined = absent, explicit null clears the lock
-  const values: Record<string, string | boolean | null> = {};
+  const values: Record<string, string | number | boolean | null> = {};
   if (patch.activeMatchRequestId !== undefined) values.active_match_request_id = patch.activeMatchRequestId;
   if (patch.lastNotifiedAt !== undefined) values.last_notified_at = patch.lastNotifiedAt;
   if (patch.notificationConsent !== undefined) values.notification_consent = patch.notificationConsent;
   if (patch.availability !== undefined) values.availability_status = patch.availability;
+  if (patch.name !== undefined) values.name = patch.name;
+  if (patch.contact !== undefined) values.contact = patch.contact;
+  if (patch.bloodGroup !== undefined) values.blood_group = patch.bloodGroup;
+  if (patch.location !== undefined) {
+    values.latitude = patch.location.latitude;
+    values.longitude = patch.location.longitude;
+  }
+  if (patch.lastDonationDate !== undefined) values.last_donation_date = patch.lastDonationDate;
+  if (patch.sex !== undefined) values.sex = patch.sex;
+  if (patch.ageYears !== undefined) values.age_years = patch.ageYears;
+  if (patch.weightKg !== undefined) values.weight_kg = patch.weightKg;
+  if (patch.hemoglobinGdl !== undefined) values.hemoglobin_gdl = patch.hemoglobinGdl;
+  if (patch.systolicBpMmhg !== undefined) values.systolic_bp_mmhg = patch.systolicBpMmhg;
+  if (patch.diastolicBpMmhg !== undefined) values.diastolic_bp_mmhg = patch.diastolicBpMmhg;
+  if (patch.pulseBpm !== undefined) values.pulse_bpm = patch.pulseBpm;
+  if (patch.isPregnantNow !== undefined) values.is_pregnant_now = patch.isPregnantNow;
+  if (patch.lastPregnancyEndDate !== undefined) values.last_pregnancy_end_date = patch.lastPregnancyEndDate;
+  if (patch.isBreastfeedingNow !== undefined) values.is_breastfeeding_now = patch.isBreastfeedingNow;
+  if (patch.illnessAntibiotics14d !== undefined) values.illness_antibiotics_14d = patch.illnessAntibiotics14d;
+  if (patch.tattooPiercing12m !== undefined) values.tattoo_piercing_12m = patch.tattooPiercing12m;
+  if (patch.alcohol24h !== undefined) values.alcohol_24h = patch.alcohol24h;
+  if (patch.fitnessDeferUntil !== undefined) values.fitness_defer_until = patch.fitnessDeferUntil;
+  if (patch.fitnessUnverified !== undefined) values.fitness_unverified = patch.fitnessUnverified;
   if (Object.keys(values).length === 0) return;
   const { error } = await db().from("donors").update(values).eq("id", id);
   if (error) throw error;
