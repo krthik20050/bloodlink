@@ -3,6 +3,7 @@ import { getSupabaseUser } from "@/lib/supabase/server";
 import { getDonorContactForRequester, listRequestsByRequester } from "@/lib/supabase/repository";
 import { Navbar } from "@/components/landing/Navbar";
 import { Footer } from "@/components/landing/Footer";
+import { InboxWatcher } from "@/components/request/InboxWatcher";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -55,6 +56,7 @@ export default async function RequestsPage() {
           <span className="rs-section-eyebrow">REQUEST INBOX</span>
           <h1 className="rs-donor-title">My requests</h1>
           <p className="rs-donor-body">Track each request and reach your matched donor directly once connected.</p>
+          <InboxWatcher watch={enriched.some((r) => r.status === "OPEN")} />
           {enriched.length === 0 ? (
             <div className="rs-compare-col">
               <p className="rs-compare-item">No requests yet.</p>
