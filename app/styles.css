@@ -3331,22 +3331,42 @@ button, input, select, textarea {
 .rs-inbox-donor { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--rs-accent-border); border-radius: 10px; background: #FFF9F9; }
 .rs-inbox-donor-name { font-size: 15px; font-weight: 600; color: var(--rs-ink); margin-bottom: 4px; }
 
-/* Telegram banner (landing, compact) */
+/* Telegram section (landing) — same open language as other sections, no card */
 .rs-telegram-section { padding-top: 64px; padding-bottom: 64px; }
-.rs-telegram-banner { background: var(--rs-surface); border: 1px solid var(--rs-border); border-radius: var(--rs-radius-card); padding: 28px; max-width: 860px; }
-@media (max-width: 640px) { .rs-telegram-banner { padding: 20px; } }
-.rs-telegram-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rs-accent); margin-right: 8px; vertical-align: 1px; }
-.rs-telegram-steps { margin: 16px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; color: var(--rs-secondary); font-size: 15px; line-height: 1.5; }
-.rs-telegram-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.rs-telegram-head { max-width: 720px; }
+.rs-telegram-lede { margin: 16px 0 0; font-size: 16px; line-height: 1.6; color: var(--rs-secondary); }
+.rs-telegram-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 0; }
 .rs-telegram-chips code { font-family: var(--font-mono); font-size: 12px; background: #F7F7F5; border: 1px solid var(--rs-border); border-radius: 6px; padding: 3px 8px; color: var(--rs-ink); }
-.rs-telegram-linkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.rs-telegram-link { font-family: var(--font-mono); font-size: 13px; color: var(--rs-accent); word-break: break-all; }
 .rs-telegram-status { font-size: 12px; color: var(--rs-secondary); }
-.rs-telegram-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0 0; }
-.rs-telegram-limits { font-size: 13px; color: var(--rs-secondary); margin: 12px 0 0; }
-.rs-telegram-guards { margin: 12px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--rs-secondary); line-height: 1.5; }
+.rs-telegram-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 24px 0 0; }
+.rs-telegram-actions .rs-btn-lg svg { flex-shrink: 0; }
+.rs-telegram-limits { font-size: 13px; color: var(--rs-secondary); margin: 16px 0 0; }
+.rs-telegram-guards { margin: 16px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--rs-secondary); line-height: 1.5; max-width: 720px; }
 .rs-telegram-cta-note { margin-top: 24px; font-size: 14px; color: var(--rs-dark-secondary); }
 .rs-telegram-cta-note a { color: #FFFFFF; text-decoration: underline; text-underline-offset: 3px; }
+
+/* After-you-request notes (landing) — muted footnotes under the wave track */
+.rs-waves-lede { margin: 16px 0 0; font-size: 16px; line-height: 1.6; color: var(--rs-secondary); max-width: 720px; }
+.rs-waves-notes { margin: 24px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--rs-secondary); line-height: 1.5; max-width: 720px; }
+
+/* Skip link — visible on focus only */
+.rs-skip-link { position: fixed; top: -48px; left: 16px; z-index: 200; background: var(--rs-ink); color: #FFFFFF; font-size: 14px; font-weight: 600; padding: 10px 16px; border-radius: 8px; text-decoration: none; transition: top 150ms ease; }
+.rs-skip-link:focus-visible { top: 12px; outline: 2px solid var(--rs-telegram); outline-offset: 2px; }
+
+/* Persistent Telegram gooey button (Skiper46-style micro-interaction) */
+.rs-tg-float { position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 90; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.rs-tg-goo-defs { position: absolute; }
+.rs-tg-fab { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%; background: var(--rs-ink); color: #FFFFFF; box-shadow: 0 8px 24px rgba(23, 23, 23, 0.28); }
+.rs-tg-fab:hover { color: #FFFFFF; }
+.rs-tg-fab:focus-visible { outline: 2px solid var(--rs-telegram); outline-offset: 3px; }
+.rs-tg-fab-goo { position: absolute; inset: -6px; border-radius: 50%; background: var(--rs-ink); opacity: 0.35; filter: url(#rs-tg-goo); pointer-events: none; }
+.rs-tg-panel { width: 240px; background: var(--rs-surface); border: 1px solid var(--rs-border); border-radius: 14px; padding: 16px; box-shadow: 0 16px 40px rgba(23, 23, 23, 0.16); }
+.rs-tg-panel-title { margin: 0; font-size: 14px; font-weight: 700; color: var(--rs-ink); }
+.rs-tg-panel-handle { margin: 2px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--rs-secondary); }
+.rs-tg-panel-links { display: flex; flex-direction: column; margin-top: 10px; border-top: 1px solid var(--rs-border); padding-top: 6px; }
+.rs-tg-panel-links a { font-size: 14px; font-weight: 500; color: var(--rs-ink); padding: 10px 4px; border-radius: 6px; min-height: 44px; display: flex; align-items: center; }
+.rs-tg-panel-links a:hover { color: var(--rs-accent); }
+@media print { .rs-tg-float { display: none; } }
 
 /* ============ Admin command center (ax-*) — mobile-first ============ */
 .ax-app { max-width: 1400px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); min-height: 100dvh; background: var(--paper, #F7F7F5); overflow-x: clip; }
@@ -3573,3 +3593,4 @@ button.ax-search { border: 0; background: transparent; cursor: pointer; padding:
 .rs-segbar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--rs-border); margin-top: 12px; }
 .rs-segbar > span { display: block; height: 100%; }
 .rs-ring { display: block; margin: 6px auto 2px; }
+.rs-avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }

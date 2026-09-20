@@ -7,8 +7,14 @@ import { Menu, X, Send } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 interface NavbarProps {
-  user: { email?: string | null } | null;
+  user: { email?: string | null; user_metadata?: { avatar_url?: string; picture?: string } | null } | null;
   telegramLink: string;
+}
+// ponytail: deterministic hue per account — stable generated avatar, no external service
+function avatarHue(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+  return h;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
@@ -43,6 +49,9 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
   const accountHref = user ? "/account" : "/auth";
   const accountLabel = user ? (user.email ? user.email.split("@")[0] : "Account") : "Sign in";
   const avatarInitial = (accountLabel || "A").charAt(0).toUpperCase();
+  const avatarUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
+  const hue = avatarHue(user?.email ?? "rakta");
+  const [imgOk, setImgOk] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -136,8 +145,20 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
                 aria-haspopup="menu"
                 aria-label={`Account menu for ${user.email ?? "your account"}`}
                 title={user.email ?? "Account"}
+                style={{ background: `linear-gradient(135deg, hsl(${hue} 55% 45%), hsl(${(hue + 40) % 360} 60% 32%))` }}
               >
-                {avatarInitial}
+                {avatarUrl && imgOk ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    aria-hidden="true"
+                    className="rs-avatar-img"
+                    referrerPolicy="no-referrer"
+                    onError={() => setImgOk(false)}
+                  />
+                ) : (
+                  avatarInitial
+                )}
               </button>
               {menuOpen && (
                 <div className="rs-avatar-menu" role="menu" aria-label="Account">
