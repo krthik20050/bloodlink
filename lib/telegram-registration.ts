@@ -13,6 +13,15 @@ export function normalizeTelegramDonationDate(value: string): string | null | un
   return `${year}-${pad(month)}-${pad(day)}`;
 }
 
+const displayMonths = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// ponytail: "2005-02-28" -> "28 February 2005" for echoes and confirmations
+export function formatDisplayDate(iso: string): string {
+  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return iso;
+  return `${Number(match[3])} ${displayMonths[Number(match[2]) - 1] ?? match[2]} ${match[1]}`;
+}
+
 // ponytail: calendar buttons emit exact ISO dates; still re-validated so forged callbacks can't store junk
 export function normalizeCalendarDate(value: string): string | undefined {
   const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);

@@ -7,22 +7,32 @@ type ReplyKeyboard = { keyboard: Array<Array<{ text: string; request_location?: 
 export type TelegramCommand = { command: string; description: string };
 
 function configured(): boolean { return process.env.MOCK_TELEGRAM === "false" && Boolean(process.env.TELEGRAM_BOT_TOKEN); }
+// ponytail: truncate PII — never log full chat ids
+function chatHash(chatId: string): string { return `***${String(chatId).slice(-4)}`; }
 let menuConfigured=false;
 async function api<T>(method:string, body:Record<string, unknown>):Promise<T>{
   const token=process.env.TELEGRAM_BOT_TOKEN;
   if(!token) throw new Error("Telegram bot token is not configured");
-  const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-  const payload=await response.json() as TelegramApiResponse<T>;
-  if(!response.ok||!payload.ok) throw new Error(`Telegram ${method} failed: ${payload.ok ? "unknown error" : payload.description ?? "unknown error"}`);
-  return payload.result;
+  // ponytail: 8s timeout + single 429/5xx retry; final failure throws so caller marks FAILED
+  for(let attempt=0;attempt<2;attempt++){
+    const response=await fetch(`https://api.telegram.org/bot${token}/${method}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body),signal:AbortSignal.timeout(8000)});
+    if((response.status===429||response.status>=500)&&attempt===0){
+      await new Promise(r=>setTimeout(r,300));
+      continue;
+    }
+    const payload=await response.json() as TelegramApiResponse<T>;
+    if(!response.ok||!payload.ok) throw new Error(`Telegram ${method} failed: ${payload.ok ? "unknown error" : payload.description ?? "unknown error"}`);
+    return payload.result;
+  }
+  throw new Error(`Telegram ${method} failed: retryable status`);
 }
 
 export async function sendDonationRequest(input:{chatId:string; bloodGroup:string; hospital:string; distanceKm:number; urgency:string; actionToken:string}):Promise<"sent"|"mock"|"skipped">{
-  if(!configured()){console.info(JSON.stringify({event:"telegram_mock_notification",chatId:input.chatId}));return "mock";}
-  if(!/^-?\d+$/.test(input.chatId)){console.warn(JSON.stringify({event:"telegram_notification_skipped",reason:"Donor has no verified Telegram chat id"}));return "skipped";}
+  if(!configured()){console.info(JSON.stringify({event:"telegram_mock_notification",chatHash:chatHash(input.chatId)}));return "mock";}
+  if(!/^-?\d+$/.test(input.chatId)){console.warn(JSON.stringify({event:"telegram_notification_skipped",chatHash:chatHash(input.chatId),reason:"Donor has no verified Telegram chat id"}));return "skipped";}
   const keyboard:InlineKeyboard={inline_keyboard:[[{text:"YES, I CAN DONATE",callback_data:`yes:${input.actionToken}`},{text:"NO",callback_data:`no:${input.actionToken}`}]]};
   await api("sendMessage",{chat_id:input.chatId,text:`🩸 BLOOD REQUEST\n\n${input.bloodGroup} needed\n🏥 ${input.hospital}\n📍 Approximately ${input.distanceKm.toFixed(1)} km away\n🚨 ${input.urgency}\n\nYou appear eligible based on your registered information. Final eligibility is decided by the blood bank.\n\nCan you donate?`,reply_markup:keyboard});
-  console.info(JSON.stringify({event:"notification_sent",chatId:input.chatId}));return "sent";
+  console.info(JSON.stringify({event:"notification_sent",chatHash:chatHash(input.chatId)}));return "sent";
 }
 export async function sendTelegramMessage(chatId:string,text:string,replyMarkup?:InlineKeyboard):Promise<void>{if(configured())await api("sendMessage",{chat_id:chatId,text,...(replyMarkup?{reply_markup:replyMarkup}:{})});}
 export async function sendTelegramReplyKeyboard(chatId:string,text:string,replyMarkup?:ReplyKeyboard):Promise<void>{if(configured())await api("sendMessage",{chat_id:chatId,text,...(replyMarkup?{reply_markup:replyMarkup}:{})});}
@@ -103,6 +113,21 @@ export function unitsKeyboard(): InlineKeyboard {
   const row = (from: number, to: number) =>
     Array.from({ length: to - from + 1 }, (_, i) => ({ text: String(from + i), callback_data: `req_units:${from + i}` }));
   return { inline_keyboard: [row(1, 5), row(6, 10)] };
+}
+
+// ponytail: date step starts with a gate — calendar only appears for prior donors
+export function donatedKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "✅ Yes", callback_data: "donor:donated:yes" },
+    { text: "❌ No", callback_data: "donor:donated:no" },
+  ]] };
+}
+
+export function dateConfirmKeyboard():InlineKeyboard {
+  return { inline_keyboard: [[
+    { text: "✅ Yes, correct", callback_data: "donor:date:yes" },
+    { text: "✏️ Change date", callback_data: "donor:date:change" },
+  ]] };
 }
 
 // ponytail: two-level edit — review shows Edit, Edit swaps in the field menu, field jumps back to one step

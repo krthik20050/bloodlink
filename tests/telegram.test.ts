@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCalendarDate, normalizeTelegramDonationDate } from "@/lib/telegram-registration";
+import { formatDisplayDate, normalizeCalendarDate, normalizeTelegramDonationDate } from "@/lib/telegram-registration";
 import { parseTelegramHospital, parseTelegramUnits, parseTelegramUrgency } from "@/lib/telegram-request";
 
 describe("Telegram donor registration", () => {
@@ -23,6 +23,13 @@ describe("Telegram donor registration", () => {
 
   it("accepts none", () => {
     expect(normalizeTelegramDonationDate("none")).toBeNull();
+  });
+});
+
+describe("Telegram display dates", () => {
+  it("formats ISO dates for chat", () => {
+    expect(formatDisplayDate("2005-02-28")).toBe("28 February 2005");
+    expect(formatDisplayDate("2026-08-13")).toBe("13 August 2026");
   });
 });
 
