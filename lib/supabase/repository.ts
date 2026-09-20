@@ -40,6 +40,7 @@ function requestFromRow(row: Record<string, unknown>): BloodRequest {
     status: row.status as BloodRequest["status"],
     createdAt: String(row.created_at),
     matchedDonorId: (row.matched_donor_id as string | null) ?? null,
+    contact: String(row.contact ?? ""),
   };
 }
 
@@ -239,6 +240,7 @@ export async function createRequest(input: Omit<BloodRequest, "id" | "matchedDon
     longitude: input.location.longitude,
     urgency: input.urgency,
     status: input.status,
+    contact: input.contact,
   }).select("*").single();
   if (error) throw error;
   return requestFromRow(data);
