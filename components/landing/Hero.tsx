@@ -4,9 +4,10 @@ import { HeroMark } from "./HeroMark";
 
 interface HeroProps {
   user: { email?: string | null } | null;
+  telegramLink?: string;
 }
 
-export const Hero: React.FC<HeroProps> = ({ user }) => {
+export const Hero: React.FC<HeroProps> = ({ user, telegramLink }) => {
   return (
     <section className="rs-hero" aria-labelledby="hero-title">
       <div className="rs-content-container rs-hero-grid">
@@ -33,6 +34,26 @@ export const Hero: React.FC<HeroProps> = ({ user }) => {
               <span className="rs-btn-arrow" aria-hidden="true">→</span>
             </Link>
           </div>
+
+          {telegramLink ? (
+            <p className="rs-hero-telegram rs-hero-animate-telegram">
+              <span>
+                Prefer chat?{" "}
+                <a
+                  href={telegramLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rs-telegram-tertiary"
+                >
+                  Continue in Telegram{" "}
+                  <span className="rs-btn-arrow" aria-hidden="true">→</span>
+                </a>
+              </span>
+              <span className="rs-hero-telegram-note rs-hero-animate-telegram-note">
+                Notifications are not guaranteed.
+              </span>
+            </p>
+          ) : null}
 
           <div className="rs-hero-signature rs-hero-animate-signature" aria-hidden="true">
             <span className="rs-sig-step">01 REQUEST</span>

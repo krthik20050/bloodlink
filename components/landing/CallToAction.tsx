@@ -2,7 +2,11 @@ import React from "react";
 import Link from "next/link";
 import { ScrollReveal } from "@/components/ui/ScrollReveal";
 
-export const CallToAction: React.FC = () => {
+interface CallToActionProps {
+  telegramLink?: string;
+}
+
+export const CallToAction: React.FC<CallToActionProps> = ({ telegramLink }) => {
   return (
     <section className="rs-cta-dark-section" aria-labelledby="cta-heading">
       <div className="rs-content-container rs-cta-inner">
@@ -49,6 +53,16 @@ export const CallToAction: React.FC = () => {
               <span className="rs-btn-arrow" aria-hidden="true">→</span>
             </Link>
           </div>
+
+          {telegramLink ? (
+            <p className="rs-telegram-cta-note">
+              Prefer chat?{" "}
+              <a href={telegramLink} target="_blank" rel="noopener noreferrer">
+                Continue in Telegram
+              </a>{" "}
+              — notifications are not guaranteed.
+            </p>
+          ) : null}
         </ScrollReveal>
       </div>
     </section>

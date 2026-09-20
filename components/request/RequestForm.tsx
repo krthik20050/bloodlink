@@ -34,6 +34,7 @@ type LocationStatus = "idle" | "loading" | "success" | "denied" | "retry";
 
 interface RequestFormProps {
   initialUser: { id?: string; email?: string | null } | null;
+  telegramLink?: string;
 }
 
 const URGENCY_OPTIONS = [
@@ -62,7 +63,7 @@ const COMPONENT_GUARD_MESSAGE =
   "Volunteer matching covers whole blood / red cells only — for plasma or platelets, please contact the hospital blood bank or e-RaktKosh directly.";
 const EXPIRY_NOTE: Record<string, string> = { ROUTINE: "48 hours", URGENT: "12 hours", EMERGENCY: "6 hours" };
 
-export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
+export const RequestForm: React.FC<RequestFormProps> = ({ initialUser, telegramLink }) => {
   const [bloodGroup, setBloodGroup] = useState<BloodGroup>("O+");
   const [unitsRequired, setUnitsRequired] = useState<number>(1);
   const [hospital, setHospital] = useState<string>("Amala Hospital");
@@ -401,6 +402,10 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
           )}
         </div>
 
+        <p className="rs-form-helper">
+          <a href="/#after-you-request" className="rs-banner-link">See what happens next →</a>
+        </p>
+
         {/* Action Controls */}
         <div className="rs-success-actions">
           <button type="button" className="rs-btn-secondary" onClick={handleReset}>
@@ -705,6 +710,19 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
               )}
             </div>
           </div>
+          {telegramLink && urgency !== "EMERGENCY" && (
+            <p className="rs-form-helper" style={{ display: "flex", flexWrap: "wrap", minWidth: 0, maxWidth: 320 }}>
+              <a
+                href={telegramLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "inline-flex", alignItems: "center", minHeight: 44, paddingTop: 12, paddingBottom: 12 }}
+              >
+                or share location in chat instead — then return to complete
+              </a>
+              <span>&nbsp;(location here is still required to submit)</span>
+            </p>
+          )}
         </div>
 
         {/* Emergency bank-first routing: hospital blood bank + 108 before volunteers */}
@@ -766,7 +784,7 @@ export const RequestForm: React.FC<RequestFormProps> = ({ initialUser }) => {
             )}
           </button>
           <p className="rs-submit-guarantee">
-            <ShieldCheck size={14} /> Requests trigger private notifications. Phone numbers are never made public.
+            <ShieldCheck size={14} /> Requests trigger private notifications. Phone numbers are never made public. Private Telegram alerts available.
           </p>
           <p className="rs-form-helper" style={{ textAlign: "center", marginTop: 8 }}>
             Open requests auto-expire after {EXPIRY_NOTE[urgency]} if still unmatched.

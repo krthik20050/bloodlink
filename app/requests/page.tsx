@@ -57,6 +57,14 @@ export default async function RequestsPage() {
           <h1 className="rs-donor-title">My requests</h1>
           <p className="rs-donor-body">Track each request and reach your matched donor directly once connected.</p>
           <InboxWatcher watch={enriched.some((r) => r.status === "OPEN")} />
+          {(enriched.length === 0 || enriched.some((r) => r.status === "OPEN")) && (
+            <p className="rs-form-helper">
+              Donor alerts arrive 1:1 on Telegram.{" "}
+              <a href={telegramLink} target="_blank" rel="noopener noreferrer" className="rs-banner-link">
+                Connect to get notified →
+              </a>
+            </p>
+          )}
           {enriched.length === 0 ? (
             <div className="rs-compare-col">
               <p className="rs-compare-item">No requests yet.</p>

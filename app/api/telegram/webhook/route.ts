@@ -854,6 +854,14 @@ async function handleMessage(chatId: string, text?: string, location?: { latitud
       await startRequesterFlow(chatId);
       break;
     case "start": {
+      if (parsed.payload === "donate") {
+        await startDonorFlow(chatId);
+        break;
+      }
+      if (parsed.payload === "request" || parsed.payload === "need_blood") {
+        await startRequesterFlow(chatId);
+        break;
+      }
       const linked = parsed.payload ? await linkTelegramDonor(parsed.payload, chatId) : null;
       await sendTelegramMessage(chatId, linked ? "✅ Telegram is now connected to your BloodLink donor profile.\n\nChoose how you want to continue." : parsed.payload ? "That linking link is invalid or expired. Create a new donor profile link and try again." : "🩸 Welcome to BloodLink.\n\nChoose how you want to continue.", telegramEntryKeyboard());
       break;

@@ -11,6 +11,7 @@ import { bloodGroups, BloodGroup, Donor } from "@/lib/domain";
 
 interface DonorOnboardingProps {
   initialUser: { id?: string; email?: string | null } | null;
+  telegramLink?: string;
   telegramBotUsername?: string;
 }
 
@@ -24,7 +25,11 @@ const STEPS: StepItem[] = [
 
 export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
   initialUser,
+  telegramLink,
+  telegramBotUsername,
 }) => {
+  // ponytail: telegramBotUsername kept for compat; callers should pass telegramLink
+  const effectiveTelegramLink = telegramLink ?? (telegramBotUsername ? `https://t.me/${telegramBotUsername}` : undefined);
   // Form State
   const [currentStep, setCurrentStep] = useState(0);
   const [name, setName] = useState("");
@@ -188,7 +193,7 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
   if (isSuccess) {
     return (
       <div className="rs-donor-layout">
-        <DonorSuccess />
+        <DonorSuccess telegramLink={effectiveTelegramLink} />
       </div>
     );
   }
@@ -293,6 +298,7 @@ export const DonorOnboarding: React.FC<DonorOnboardingProps> = ({
               location={location}
               onLocationChange={setLocation}
               error={errors.location}
+              telegramLink={effectiveTelegramLink}
             />
           )}
 

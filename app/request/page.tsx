@@ -76,7 +76,7 @@ export default async function RequestPage() {
 
             {/* Desktop Right / Mobile Bottom: Precision Form Card */}
             <div className="rs-request-form-area">
-              <RequestForm initialUser={user} />
+              <RequestForm initialUser={user} telegramLink={telegramLink} />
             </div>
           </div>
         </div>

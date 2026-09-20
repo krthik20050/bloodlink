@@ -8,7 +8,7 @@ interface DonorSuccessProps {
   onViewStatus?: () => void;
 }
 
-export const DonorSuccess: React.FC<DonorSuccessProps> = () => {
+export const DonorSuccess: React.FC<DonorSuccessProps> = ({ telegramLink }) => {
   return (
     <div className="rs-donor-success-box" aria-live="polite">
       <span className="rs-section-eyebrow">RAKTASETU</span>
@@ -22,6 +22,11 @@ export const DonorSuccess: React.FC<DonorSuccessProps> = () => {
         <Link href="/" className="rs-btn-primary">
           Return home
         </Link>
+        {telegramLink && (
+          <a href={telegramLink} target="_blank" rel="noopener noreferrer" className="rs-banner-link">
+            Continue in Telegram →
+          </a>
+        )}
       </div>
     </div>
   );

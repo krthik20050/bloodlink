@@ -21,7 +21,7 @@ export default async function DonorPage() {
         <div className="rs-donor-container">
           <DonorOnboarding
             initialUser={user ? { id: user.id, email: user.email } : null}
-            telegramBotUsername={telegramBotUsername}
+            telegramLink={telegramLink}
           />
         </div>
       </main>

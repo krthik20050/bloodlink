@@ -9,6 +9,7 @@ interface LocationStepProps {
   location: LocationCoords | null;
   onLocationChange: (loc: LocationCoords | null) => void;
   error?: string;
+  telegramLink?: string;
 }
 
 type LocState = "idle" | "requesting" | "ready" | "denied" | "error";
@@ -17,6 +18,7 @@ export const LocationStep: React.FC<LocationStepProps> = ({
   location,
   onLocationChange,
   error,
+  telegramLink,
 }) => {
   const [state, setState] = useState<LocState>(location ? "ready" : "idle");
 
@@ -85,6 +87,19 @@ export const LocationStep: React.FC<LocationStepProps> = ({
       </div>
 
       {error && <span className="rs-field-error">{error}</span>}
+      {telegramLink && (
+        <p className="rs-form-helper" style={{ display: "flex", flexWrap: "wrap", minWidth: 0, maxWidth: 320 }}>
+          <a
+            href={telegramLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", minHeight: 44, paddingTop: 12, paddingBottom: 12 }}
+          >
+            or share location in chat instead — then return to complete
+          </a>
+          <span>&nbsp;(location here is still required to continue)</span>
+        </p>
+      )}
     </div>
   );
 };

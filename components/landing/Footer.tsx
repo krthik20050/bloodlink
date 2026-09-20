@@ -7,6 +7,8 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ telegramLink }) => {
+  // ponytail: derive @handle from link; strip scheme/domain + trailing slash
+  const handle = telegramLink.replace(/^https?:\/\/t\.me\//, "").replace(/\/+$/, "");
   return (
     <footer className="rs-footer" aria-label="Site footer">
       <div className="rs-content-container rs-footer-inner">
@@ -23,8 +25,8 @@ export const Footer: React.FC<FooterProps> = ({ telegramLink }) => {
           <Link href="/request">For requests</Link>
           <Link href="/donor">For donors</Link>
           <Link href="/auth">Sign in</Link>
-          <a href={telegramLink} target="_blank" rel="noreferrer">
-            Telegram
+          <a href={telegramLink} target="_blank" rel="noopener noreferrer">
+            Telegram (@{handle})
           </a>
         </nav>
       </div>
