@@ -45,6 +45,13 @@ export default async function AccountPage() {
   const unitsGiven = donations.reduce((sum, d) => sum + d.units, 0);
   const openCount = requests.filter((r) => r.status === "OPEN").length;
   const matchedCount = requests.filter((r) => r.status === "MATCHED").length;
+  const settledCount = requests.length - openCount - matchedCount;
+  const profileSlots = donor
+    ? [donor.name, donor.contact, donor.bloodGroup, donor.ageYears, donor.sex, donor.weightKg, donor.hemoglobinGdl, donor.systolicBpMmhg, donor.pulseBpm, donor.illnessAntibiotics14d, donor.tattooPiercing12m, donor.alcohol24h]
+    : [];
+  const profileFilled = profileSlots.filter((v) => v !== null && v !== undefined && v !== "").length;
+  const profilePct = donor ? Math.round((profileFilled / profileSlots.length) * 100) : 0;
+  const ringC = 2 * Math.PI * 26;
 
   return (
     <div className="rs-page-shell">
@@ -54,6 +61,47 @@ export default async function AccountPage() {
           <span className="rs-section-eyebrow">ACCOUNT</span>
           <h1 className="rs-donor-title">My account</h1>
           <p className="rs-donor-body">Signed in as {user.email ?? "your account"}. You receive notifications here on the website and on Telegram.</p>
+
+          <div className="rs-stat-grid" aria-label="Account overview">
+            <div className="rs-stat-tile">
+              <span className="rs-stat-num rs-stat-num--accent">{donations.length}</span>
+              <span className="rs-stat-cap">Donations</span>
+            </div>
+            <div className="rs-stat-tile">
+              <span className="rs-stat-num">{unitsGiven}</span>
+              <span className="rs-stat-cap">Units given</span>
+            </div>
+            <div className="rs-stat-tile">
+              <span className="rs-stat-num">{requests.length}</span>
+              <span className="rs-stat-cap">Requests</span>
+            </div>
+            <div className="rs-stat-tile">
+              <svg className="rs-ring" width="72" height="72" viewBox="0 0 72 72" role="img" aria-label={`Profile ${profilePct}% complete`}>
+                <circle cx="36" cy="36" r="26" fill="none" stroke="var(--rs-border)" strokeWidth="8" />
+                <circle
+                  cx="36" cy="36" r="26" fill="none"
+                  stroke="var(--rs-accent, #8F2638)" strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={ringC} strokeDashoffset={ringC * (1 - profilePct / 100)}
+                  transform="rotate(-90 36 36)"
+                />
+                <text x="36" y="41" textAnchor="middle" fontSize="15" fontWeight="700" fill="var(--rs-ink)">{profilePct}%</text>
+              </svg>
+              <span className="rs-stat-cap">Profile complete</span>
+            </div>
+          </div>
+
+          {requests.length > 0 && (
+            <div aria-label="Request status breakdown">
+              <div className="rs-segbar">
+                {openCount > 0 && <span style={{ width: `${(openCount / requests.length) * 100}%`, background: "var(--rs-accent, #8F2638)" }} />}
+                {matchedCount > 0 && <span style={{ width: `${(matchedCount / requests.length) * 100}%`, background: "#2F7D4F" }} />}
+                {settledCount > 0 && <span style={{ width: `${(settledCount / requests.length) * 100}%`, background: "var(--rs-secondary)" }} />}
+              </div>
+              <p className="rs-form-helper" style={{ marginTop: 6 }}>
+                {openCount} open · {matchedCount} matched · {settledCount} settled
+              </p>
+            </div>
+          )}
 
           <div className="rs-inbox-list">
             <section className="rs-compare-col" aria-label="Account details">

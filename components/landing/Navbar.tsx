@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { BrandLogo } from "./BrandLogo";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Send } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 interface NavbarProps {
   user: { email?: string | null } | null;
@@ -41,6 +42,34 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
 
   const accountHref = user ? "/account" : "/auth";
   const accountLabel = user ? (user.email ? user.email.split("@")[0] : "Account") : "Sign in";
+  const avatarInitial = (accountLabel || "A").charAt(0).toUpperCase();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close account menu on outside click / Esc
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen ]);
+
+  async function signOut() {
+    setMenuOpen(false);
+    try {
+      await createSupabaseBrowserClient().auth.signOut();
+    } catch { /* signed out locally anyway */ }
+    window.location.href = "/";
+  }
 
   return (
     <header
@@ -80,16 +109,58 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
           <a
             href={telegramLink}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="rs-nav-text-action"
             title="Telegram Bot"
           >
             Telegram
           </a>
+          <a
+            href={telegramLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rs-nav-telegram-icon"
+            aria-label="Chat with BloodLink bot on Telegram"
+            title="Chat with BloodLink bot on Telegram"
+          >
+            <Send size={18} aria-hidden="true" />
+          </a>
 
-          <Link href={accountHref} className="rs-nav-sign-in">
-            {accountLabel}
-          </Link>
+          {user ? (
+            <div className="rs-avatar-wrap" ref={menuRef}>
+              <button
+                type="button"
+                className="rs-avatar-btn"
+                onClick={() => setMenuOpen((o) => !o)}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                aria-label={`Account menu for ${user.email ?? "your account"}`}
+                title={user.email ?? "Account"}
+              >
+                {avatarInitial}
+              </button>
+              {menuOpen && (
+                <div className="rs-avatar-menu" role="menu" aria-label="Account">
+                  <Link href="/account" className="rs-avatar-item" role="menuitem" onClick={() => setMenuOpen(false)}>
+                    My account
+                  </Link>
+                  <Link href="/requests" className="rs-avatar-item" role="menuitem" onClick={() => setMenuOpen(false)}>
+                    My requests
+                  </Link>
+                  <Link href="/donor" className="rs-avatar-item" role="menuitem" onClick={() => setMenuOpen(false)}>
+                    Donor profile
+                  </Link>
+                  <button type="button" className="rs-avatar-item" role="menuitem" onClick={signOut}>
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Link href={accountHref} className="rs-nav-sign-in">
+              {accountLabel}
+            </Link>
+          )}
 
           <button
             type="button"
@@ -164,7 +235,7 @@ export const Navbar: React.FC<NavbarProps> = ({ user, telegramLink }) => {
             <a
               href={telegramLink}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="rs-mobile-link rs-mobile-link--muted"
               onClick={() => setMobileMenuOpen(false)}
             >
