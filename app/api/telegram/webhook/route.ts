@@ -69,6 +69,12 @@ const commands = [
 ];
 const helpText = "Use /start to open the menu.\n\nDonate: register directly in Telegram.\n/request: create a blood request here.\n/status: show your donor status and blood requests.\n/cancel: stop the current flow.\n/disconnect: remove this chat from your donor profile.";
 
+// ponytail: Supabase throws plain objects, not Errors — String() hides them as [object Object]
+function errText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
 function command(text: string): { name: string; payload?: string } | null {
   const match = text.trim().match(/^\/([a-z]+)(?:@[a-z0-9_]+)?(?:\s+(.+))?$/i);
   return match ? { name: match[1].toLowerCase(), payload: match[2]?.trim().slice(0, 64) } : null;
@@ -286,7 +292,7 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
             await updateTelegramRequester(chatId, { name: (data.name as string).trim(), contact: (data.contact as string).trim() });
           } catch (error) {
             // ponytail: contact save is best-effort until migration 0006 is applied; never block the request itself
-            console.error(JSON.stringify({ event: "telegram_requester_contact_failed", error: error instanceof Error ? error.message : String(error) }));
+            console.error(JSON.stringify({ event: "telegram_requester_contact_failed", error: errText(error) }));
           }
           request = await createRequest({
             requesterId: await requesterId(chatId),
@@ -300,7 +306,7 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
             contact: (data.contact as string).trim(),
           });
         } catch (error) {
-          console.error(JSON.stringify({ event: "telegram_request_create_failed", error: error instanceof Error ? error.message : String(error) }));
+          console.error(JSON.stringify({ event: "telegram_request_create_failed", error: errText(error) }));
           await saveTelegramConversation(chatId, "request_confirmation", data);
           await sendTelegramMessage(chatId, "Something went wrong creating your request. Tap Create request to try again.", requesterConfirmationKeyboard());
           return true;
@@ -311,7 +317,7 @@ async function handleRequesterFlow(chatId: string, text: string | undefined, loc
           await queueNotifications(request.id, matches.selected.map(item => item.donorId), 1);
           console.info(JSON.stringify({ event: "matching_completed", requestId: request.id, selected: matches.selected.length, source: "telegram" }));
         } catch (error) {
-          console.error(JSON.stringify({ event: "telegram_match_failed", requestId: request.id, error: error instanceof Error ? error.message : String(error) }));
+          console.error(JSON.stringify({ event: "telegram_match_failed", requestId: request.id, error: errText(error) }));
         }
         await clearTelegramConversation(chatId);
         await sendTelegramMessage(chatId, `✅ Blood request created.\n\n${formatTelegramRequest(request)}\n\nUse /status to check it or /cancel_request ${request.id} to cancel it.`);
@@ -458,7 +464,7 @@ async function handleDonorFlow(chatId: string, text: string | undefined, locatio
             lastDonationDate: (data.lastDonationDate as string | null) ?? null,
           });
         } catch (error) {
-          console.error(JSON.stringify({ event: "telegram_donor_create_failed", error: error instanceof Error ? error.message : String(error) }));
+          console.error(JSON.stringify({ event: "telegram_donor_create_failed", error: errText(error) }));
           await saveTelegramConversation(chatId, "donor_review", data);
           await sendTelegramMessage(chatId, "Something went wrong saving your registration. Tap Register me to try again.", donorReviewKeyboard());
           return true;
@@ -684,7 +690,7 @@ export async function POST(req: Request) {
       try {
         await editTelegramCalendar(chatId, callback.message.message_id, "When was your last donation? Tap a date below, or type it as day month year (for example 28 02 2005), or type none.", donationCalendarKeyboard(Number(match[1]), Number(match[2])));
       } catch (error) {
-        console.error(JSON.stringify({ event: "telegram_calendar_nav_failed", error: error instanceof Error ? error.message : String(error) }));
+        console.error(JSON.stringify({ event: "telegram_calendar_nav_failed", error: errText(error) }));
       }
     } else if (callback) await answerCallbackQuery(callback.id, "");
   } else if (data?.startsWith("calday:") && callback?.message) {
@@ -757,7 +763,7 @@ export async function POST(req: Request) {
     await sendTelegramMessage(String(callback.message.chat.id), helpText, telegramEntryKeyboard());
   }
   } catch (error) {
-    console.error(JSON.stringify({ event: "telegram_callback_failed", error: error instanceof Error ? error.message : String(error) }));
+    console.error(JSON.stringify({ event: "telegram_callback_failed", error: errText(error) }));
     try { await answerCallbackQuery(callback.id, "Something went wrong, please try again."); } catch { /* ponytail: answer is best-effort */ }
   }
   }
@@ -766,11 +772,11 @@ export async function POST(req: Request) {
       try {
         await configureTelegramBot(commands);
       } catch (error) {
-        console.error(JSON.stringify({ event: "telegram_menu_setup_failed", error: error instanceof Error ? error.message : String(error) }));
+        console.error(JSON.stringify({ event: "telegram_menu_setup_failed", error: errText(error) }));
       }
       await handleMessage(String(update.message.chat.id), update.message.text, update.message.location);
     } catch (error) {
-      console.error(JSON.stringify({ event: "telegram_update_failed", error: error instanceof Error ? error.message : String(error) }));
+      console.error(JSON.stringify({ event: "telegram_update_failed", error: errText(error) }));
       return NextResponse.json({ error: "Telegram update could not be handled" }, { status: 502 });
     }
   }
